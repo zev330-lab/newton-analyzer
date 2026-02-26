@@ -192,6 +192,10 @@ const App = () => {
   const market = window.__MARKET__;
   const stats = window.__STATS__;
   useEffect(() => {
+    var sp = document.getElementById("splash");
+    if (sp) sp.parentNode.removeChild(sp);
+  }, []);
+  useEffect(() => {
     if (!allData) {
       const s = document.createElement("script");
       s.src = "data.js";
