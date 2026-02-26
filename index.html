@@ -1,152 +1,62 @@
 <!DOCTYPE html>
-<html lang="en" style="background:#0F1A2E">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0F1A2E">
-<title>Newton MA — Investment Opportunity Analyzer</title>
-<link rel="icon" id="dynamic-favicon" href="data:,">
-<link rel="apple-touch-icon" href="icon-180.png">
+<title>Newton MA — Investment Analyzer</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-* { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
-:root {
-  --navy: #1B2A4A;
-  --navy-light: #2C3E6B;
-  --slate: #475569;
-  --gold: #D4A843;
-  --gold-light: #E8C97A;
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body,#root{height:100%;width:100%;font-family:'Inter',system-ui,sans-serif}
+body{background:#0F1A2E;color:#fff;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes rotatePhone{0%,100%{transform:rotate(0deg)}50%{transform:rotate(90deg)}}
+.fade-in{animation:fadeIn .3s ease-out}
+.slide-in{animation:slideIn .4s ease-out}
+.detail-modal{position:fixed;inset:0;z-index:50;background:rgba(15,26,46,.8);backdrop-filter:blur(6px);overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px}
+@media(min-width:1024px){.detail-modal{padding:24px;display:flex;align-items:flex-start;justify-content:center}}
+.scrollbar-thin::-webkit-scrollbar{width:6px}
+.scrollbar-thin::-webkit-scrollbar-track{background:transparent}
+.scrollbar-thin::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:3px}
+.range-input{-webkit-appearance:none;appearance:none;width:100%;height:24px;background:transparent;cursor:pointer;margin:0;position:relative;z-index:2}
+.range-input::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:22px;height:22px;border-radius:50%;background:#D4A843;border:3px solid white;box-shadow:0 1px 6px rgba(0,0,0,.25);cursor:pointer;margin-top:-8px}
+.range-input::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:transparent}
+.range-input::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#D4A843;border:3px solid white;box-shadow:0 1px 6px rgba(0,0,0,.25);cursor:pointer}
+.range-input::-moz-range-track{height:6px;border-radius:3px;background:transparent}
+.addr-cell{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(min-width:768px){.addr-cell{max-width:180px}}
+@media(min-width:1024px){.addr-cell{max-width:240px}}
+@media(orientation:landscape) and (max-width:1023px){
+  .data-table th,.data-table td{padding:2px 4px;white-space:nowrap}
+  .data-table{font-size:11px}
+  .dash-cards{display:none!important}
+  .app-header{padding-top:6px!important;padding-bottom:6px!important}
+  .app-header h1{font-size:14px!important}
+  .app-header p{display:none}
+  .app-footer{display:none}
 }
-body { background: #0F1A2E; margin: 0; }
-.scrollbar-thin::-webkit-scrollbar { width: 6px; }
-.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-.scrollbar-thin::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
-/* Custom range slider */
-.range-input {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 24px;
-  background: transparent;
-  cursor: pointer;
-  margin: 0;
-  position: relative;
-  z-index: 2;
+@media(min-width:1024px){
+  .data-table th,.data-table td{padding:6px 8px}
+  .data-table{font-size:13px}
 }
-.range-input::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--gold);
-  border: 3px solid white;
-  box-shadow: 0 1px 6px rgba(0,0,0,0.25);
-  cursor: pointer;
-  margin-top: -8px;
-}
-.range-input::-webkit-slider-runnable-track {
-  height: 6px;
-  border-radius: 3px;
-  background: transparent;
-}
-.range-input::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--gold);
-  border: 3px solid white;
-  box-shadow: 0 1px 6px rgba(0,0,0,0.25);
-  cursor: pointer;
-}
-.range-input::-moz-range-track {
-  height: 6px;
-  border-radius: 3px;
-  background: transparent;
-}
-/* Property detail modal */
-.detail-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  background: rgba(15,26,46,0.8);
-  backdrop-filter: blur(6px);
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: 8px;
-}
-@media (min-width: 1024px) {
-  .detail-modal { padding: 24px; display: flex; align-items: flex-start; justify-content: center; }
-}
-@media print {
-  .no-print { display: none !important; }
-  .print-break { page-break-before: always; }
-}
-/* Landscape phone: compact everything to fit */
-@media (orientation: landscape) and (max-width: 1023px) {
-  .data-table th, .data-table td { padding: 2px 4px; white-space: nowrap; }
-  .data-table { font-size: 11px; }
-  .dash-cards { display: none !important; }
-  .app-header { padding-top: 6px !important; padding-bottom: 6px !important; }
-  .app-header h1 { font-size: 14px !important; }
-  .app-header p { display: none; }
-  .shortlist-bar { margin-top: 4px !important; }
-  .main-content { padding-top: 4px !important; padding-bottom: 4px !important; }
-  .app-footer { display: none; }
-}
-@media (min-width: 1024px) {
-  .data-table th, .data-table td { padding: 6px 8px; }
-  .data-table { font-size: 13px; }
-}
-.addr-cell { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (min-width: 768px) { .addr-cell { max-width: 180px; } }
-@media (min-width: 1024px) { .addr-cell { max-width: 220px; } }
-.fade-in { animation: fadeIn 0.2s ease-in; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
-.slide-in { animation: slideIn 0.4s ease-out; }
-@keyframes slideIn { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
-.overlay-bg { background: #0F1A2E; }
-/* Mobile touch-friendly tweaks */
-@media (max-width: 1023px) {
-  .filter-panel { font-size: 14px; }
-  .filter-panel input, .filter-panel select, .filter-panel button {
-    min-height: 44px;
-    font-size: 14px;
-  }
-}
+@media print{.no-print{display:none!important}}
 </style>
 </head>
 <body>
-<div id="splash" style="position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;z-index:9999;background:#0F1A2E;display:flex;align-items:center;justify-content:center;padding:16px;font-family:system-ui,-apple-system,sans-serif;margin:0">
-<div style="background:white;border-radius:16px;max-width:600px;width:100%;padding:24px;box-shadow:0 4px 30px rgba(0,0,0,0.3)">
-<h2 style="color:#1B2A4A;font-size:20px;font-weight:700;margin:0 0 12px">Welcome to Your Newton Investment Analyzer</h2>
-<p style="color:#475569;font-size:15px;line-height:1.6;margin:0 0 16px">Analyzing <strong style="color:#1B2A4A">25,000+ properties</strong> across Newton, MA to surface investment opportunities.</p>
-<div style="display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px">
-<span style="padding:4px 12px;border-radius:6px;background:#ECFDF5;color:#15803D;font-size:12px;font-weight:700">FLIP</span>
-<span style="padding:4px 12px;border-radius:6px;background:#EFF6FF;color:#1D4ED8;font-size:12px;font-weight:700">HOLD</span>
-<span style="padding:4px 12px;border-radius:6px;background:#F5F3FF;color:#7C3AED;font-size:12px;font-weight:700">BRRRR</span>
-<span style="padding:4px 12px;border-radius:6px;background:#FFFBEB;color:#B45309;font-size:12px;font-weight:700">VALUE-ADD</span>
-</div>
-<p style="color:#94A3B8;font-size:13px;margin:0">Loading your analysis...</p>
-</div>
-</div>
 <div id="root"></div>
-<script>
-window.onerror=function(msg,url,line){
-  var d=document.getElementById('splash');
-  if(d){var p=document.createElement('p');
-  p.style.cssText='color:red;font-size:11px;margin-top:8px;word-break:break-all';
-  p.textContent='ERR: '+msg+' (line '+line+' in '+(url.split('/').pop())+')';
-  d.querySelector('div').appendChild(p)}};
-</script>
-<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
+<script>tailwind.config={theme:{extend:{colors:{navy:{DEFAULT:'#1B2A4A',dark:'#0F1A2E',light:'#2C3E6B'},gold:{DEFAULT:'#D4A843',light:'#E8C97A'}}}}}</script>
+<script src="data.js"></script>
 <script src="app.js"></script>
-
 </body>
 </html>

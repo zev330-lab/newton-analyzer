@@ -1,398 +1,791 @@
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        navy: { DEFAULT: '#1B2A4A', light: '#2C3E6B', dark: '#0F1A2E' },
-        gold: { DEFAULT: '#D4A843', light: '#E8C97A', dark: '#8B6914' },
-        slate: { 50: '#F8FAFC', 100: '#F1F5F9', 200: '#E2E8F0', 300: '#CBD5E1', 400: '#94A3B8', 500: '#64748B', 600: '#475569', 700: '#334155', 800: '#1E293B', 900: '#0F172A' }
-      }
-    }
-  }
-}
-
-window.__MARKET__ = {"medianPrice":1450000,"avgPSF_overall":596,"avgPSF_byVillage":{"NEWTON":650,"NEWTON CENTRE":750,"WEST NEWTON":620,"NEWTONVILLE":600,"CHESTNUT HILL":800,"WABAN":700,"AUBURNDALE":580,"NEWTON HIGHLANDS":650,"NEWTON UPPER FALLS":550,"NEWTON LOWER FALLS":560},"premiumPSF_byVillage":{"NEWTON":720,"NEWTON CENTRE":830,"WEST NEWTON":700,"NEWTONVILLE":680,"CHESTNUT HILL":900,"WABAN":790,"AUBURNDALE":660,"NEWTON HIGHLANDS":720,"NEWTON UPPER FALLS":620,"NEWTON LOWER FALLS":640},"avgRentPSF":2.0,"rent2BR":3200,"rent3BR":4500,"taxRate":0.0098,"insuranceAnnual":3000,"maintenancePct":0.01,"mortgageRate":0.06,"downPaymentPct":0.25,"closingCostPct":0.03,"sellingCostPct":0.05,"renoPerSqft":85,"holdingMonths_flip":6,"vacancyRate":0.05,"medianDOM":45,"capRate_stabilized":0.05,"capRate_valueAdd":0.065,"refiLTV":0.75};
-window.__STATS__ = {total: 25606, opportunities: 8197, flips: 2168, holds: 94, brrrrs: 1471, valueAdds: 34};
+/* Newton MA Investment Analyzer - app.js */
+/* React.createElement-based, no JSX, no build step */
 
 const { useState, useMemo, useCallback, useEffect, useRef } = React;
-const fmt = (n, style = "currency") => {
+const h = React.createElement;
+
+// ── Utilities ──────────────────────────────────────────────
+const fmt = (n, style) => {
   if (n == null || isNaN(n)) return "\u2014";
-  if (style === "currency") return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
-  if (style === "percent") return n.toFixed(1) + "%";
-  if (style === "number") return new Intl.NumberFormat("en-US").format(Math.round(n));
-  return String(n);
+  if (style === "pct") return n.toFixed(1) + "%";
+  if (style === "int") return Math.round(n).toLocaleString();
+  return new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0}).format(n);
 };
-const calcMortgage = (principal, rate, years = 30) => {
+const fmtK = n => {
+  if (n == null || isNaN(n)) return "\u2014";
+  if (Math.abs(n) >= 1e6) return "$" + (n/1e6).toFixed(2) + "M";
+  if (Math.abs(n) >= 1e3) return "$" + (n/1e3).toFixed(0) + "K";
+  return fmt(n);
+};
+
+const STRAT_COLORS = {
+  Flip: {bg:"bg-emerald-50",text:"text-emerald-700",border:"border-emerald-200",dot:"bg-emerald-500"},
+  Hold: {bg:"bg-blue-50",text:"text-blue-700",border:"border-blue-200",dot:"bg-blue-500"},
+  BRRRR: {bg:"bg-purple-50",text:"text-purple-700",border:"border-purple-200",dot:"bg-purple-500"},
+  "Value-Add": {bg:"bg-amber-50",text:"text-amber-700",border:"border-amber-200",dot:"bg-amber-500"},
+};
+
+const GRADE_COLORS = {
+  A: "bg-emerald-100 text-emerald-800",
+  B: "bg-blue-100 text-blue-800",
+  C: "bg-amber-100 text-amber-800",
+  D: "bg-slate-100 text-slate-600",
+};
+
+const scoreColor = s => s >= 10 ? "bg-emerald-500 text-white" : s >= 7 ? "bg-amber-400 text-amber-900" : "bg-slate-300 text-slate-700";
+const scoreTier = s => s >= 10 ? "Strong" : s >= 7 ? "Moderate" : "Worth Watching";
+
+const MORTGAGE_RATE = 0.06;
+const INSURANCE_YR = 3000;
+
+function monthlyPayment(principal, rate, years) {
   if (principal <= 0 || rate <= 0) return 0;
-  const r = rate / 12, n = years * 12;
-  return principal * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
-};
-const scoreColor = (s) => s >= 10 ? "text-emerald-700 bg-emerald-50" : s >= 8 ? "text-amber-700 bg-amber-50" : s >= 5 ? "text-blue-700 bg-blue-50" : "text-slate-500 bg-slate-50";
-const scoreEmoji = (s) => s >= 10 ? "\u{1F7E2}" : s >= 7 ? "\u{1F7E1}" : "\u{1F534}";
-const gradeColor = (g) => g === "A" ? "bg-emerald-100 text-emerald-800" : g === "B" ? "bg-blue-100 text-blue-800" : g === "C" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600";
-const stratColor = (s) => s === "Flip" ? "bg-emerald-600" : s === "Hold" ? "bg-blue-600" : s === "BRRRR" ? "bg-purple-600" : s === "Value-Add" ? "bg-amber-600" : "bg-slate-400";
-const Logo = ({ size = 80, className = "" }) => /* @__PURE__ */ React.createElement("svg", { viewBox: "0 0 64 64", width: size, height: size, className }, /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("linearGradient", { id: "navyGrad", x1: "0", y1: "0", x2: "1", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: "#1B2A4A" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: "#0F1A2E" })), /* @__PURE__ */ React.createElement("linearGradient", { id: "goldGrad", x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: "#E8C97A" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: "#D4A843" }))), /* @__PURE__ */ React.createElement("rect", { width: "64", height: "64", rx: "15", fill: "url(#navyGrad)" }), /* @__PURE__ */ React.createElement("rect", { x: "2", y: "2", width: "60", height: "60", rx: "13", fill: "none", stroke: "#D4A843", strokeWidth: "0.5", opacity: "0.15" }), /* @__PURE__ */ React.createElement("path", { d: "M32 11L12 24v2h40v-2L32 11z", fill: "url(#goldGrad)", opacity: "0.12" }), /* @__PURE__ */ React.createElement("path", { d: "M12 24l20-13 20 13", stroke: "url(#goldGrad)", strokeWidth: "2.5", fill: "none", strokeLinecap: "round", strokeLinejoin: "round" }), /* @__PURE__ */ React.createElement("path", { d: "M16 24v20h32V24", stroke: "#D4A843", strokeWidth: "1.5", fill: "none", strokeLinecap: "round", strokeLinejoin: "round", opacity: "0.6" }), /* @__PURE__ */ React.createElement("rect", { x: "27", y: "33", width: "10", height: "11", rx: "1.5", stroke: "#D4A843", strokeWidth: "1.5", fill: "rgba(212,168,67,0.08)" }), /* @__PURE__ */ React.createElement("circle", { cx: "35", cy: "39", r: "0.8", fill: "#D4A843" }), /* @__PURE__ */ React.createElement("rect", { x: "19", y: "28", width: "6", height: "5", rx: "1", stroke: "#D4A843", strokeWidth: "1.2", fill: "rgba(212,168,67,0.06)" }), /* @__PURE__ */ React.createElement("rect", { x: "39", y: "28", width: "6", height: "5", rx: "1", stroke: "#D4A843", strokeWidth: "1.2", fill: "rgba(212,168,67,0.06)" }), /* @__PURE__ */ React.createElement("circle", { cx: "44", cy: "18", r: "6", stroke: "#D4A843", strokeWidth: "1.5", fill: "none", opacity: "0.7" }), /* @__PURE__ */ React.createElement("circle", { cx: "44", cy: "18", r: "2", fill: "#D4A843", opacity: "0.7" }), /* @__PURE__ */ React.createElement("path", { d: "M44 10.5v3M44 22.5v3M36.5 18h3M49.5 18h3", stroke: "#D4A843", strokeWidth: "1", strokeLinecap: "round", opacity: "0.5" }), /* @__PURE__ */ React.createElement("path", { d: "M8 48h48", stroke: "#D4A843", strokeWidth: "1.5", strokeLinecap: "round", opacity: "0.25" }), /* @__PURE__ */ React.createElement("path", { d: "M50 47l4-5", stroke: "#D4A843", strokeWidth: "1.5", strokeLinecap: "round", opacity: "0.5" }), /* @__PURE__ */ React.createElement("path", { d: "M52 42h2v2", stroke: "#D4A843", strokeWidth: "1.2", strokeLinecap: "round", strokeLinejoin: "round", opacity: "0.5" }));
-const RotatePrompt = ({ onContinue }) => {
-  const [isLandscape, setIsLandscape] = useState(window.innerWidth > window.innerHeight);
+  const r = rate / 12, n = (years || 30) * 12;
+  return principal * (r * Math.pow(1+r,n)) / (Math.pow(1+r,n) - 1);
+}
+
+// ── SVG Icons ──────────────────────────────────────────────
+const LogoSVG = () => h("svg",{viewBox:"0 0 80 80",width:80,height:80,className:"mx-auto"},
+  h("rect",{x:10,y:35,width:60,height:40,rx:4,fill:"#1B2A4A",stroke:"#D4A843",strokeWidth:2}),
+  h("polygon",{points:"40,8 5,38 75,38",fill:"#1B2A4A",stroke:"#D4A843",strokeWidth:2}),
+  h("rect",{x:30,y:50,width:20,height:25,rx:2,fill:"#D4A843",opacity:.8}),
+  h("circle",{cx:58,cy:22,r:14,fill:"none",stroke:"#D4A843",strokeWidth:3}),
+  h("line",{x1:68,y1:32,x2:78,y2:42,stroke:"#D4A843",strokeWidth:3,strokeLinecap:"round"}),
+  h("rect",{x:18,y:45,width:8,height:8,rx:1,fill:"#D4A843",opacity:.5}),
+  h("rect",{x:54,y:45,width:8,height:8,rx:1,fill:"#D4A843",opacity:.5}),
+);
+
+const PhoneRotateIcon = () => h("svg",{viewBox:"0 0 64 64",width:64,height:64,style:{animation:"rotatePhone 2s ease-in-out infinite"}},
+  h("rect",{x:18,y:8,width:28,height:48,rx:4,fill:"none",stroke:"#D4A843",strokeWidth:2.5}),
+  h("circle",{cx:32,cy:50,r:2,fill:"#D4A843"}),
+  h("path",{d:"M52 32 c4-8 2-16-4-20",fill:"none",stroke:"#D4A843",strokeWidth:2,strokeLinecap:"round"}),
+  h("polygon",{points:"48,10 50,16 44,14",fill:"#D4A843"}),
+);
+
+// ── RotatePrompt ───────────────────────────────────────────
+function RotatePrompt({onContinue}) {
+  const [landscape, setLandscape] = useState(false);
   useEffect(() => {
-    const check = () => setIsLandscape(window.innerWidth > window.innerHeight);
+    const check = () => {
+      if (window.innerWidth > window.innerHeight) {
+        setLandscape(true);
+      }
+    };
+    check();
     window.addEventListener("resize", check);
-    window.addEventListener("orientationchange", () => setTimeout(check, 200));
+    window.addEventListener("orientationchange", check);
     return () => {
       window.removeEventListener("resize", check);
       window.removeEventListener("orientationchange", check);
     };
   }, []);
   useEffect(() => {
-    if (isLandscape) {
-      const t = setTimeout(onContinue, 800);
+    if (landscape) {
+      const t = setTimeout(() => onContinue(), 800);
       return () => clearTimeout(t);
     }
-  }, [isLandscape, onContinue]);
-  return /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-[9999] bg-navy flex flex-col items-center justify-center text-center p-6" }, /* @__PURE__ */ React.createElement(Logo, { size: 72, className: "mb-6 opacity-80" }), !isLandscape ? /* @__PURE__ */ React.createElement("div", { className: "fade-in" }, /* @__PURE__ */ React.createElement("div", { className: "mb-8" }, /* @__PURE__ */ React.createElement("svg", { viewBox: "0 0 100 100", width: "100", height: "100", className: "mx-auto" }, /* @__PURE__ */ React.createElement("rect", { x: "30", y: "10", width: "40", height: "68", rx: "6", stroke: "#64748B", strokeWidth: "2", fill: "none", strokeDasharray: "4 3" }), /* @__PURE__ */ React.createElement("circle", { cx: "50", cy: "70", r: "2.5", fill: "#64748B" }), /* @__PURE__ */ React.createElement("path", { d: "M72 44c8-2 14 4 12 14", stroke: "#D4A843", strokeWidth: "2.5", strokeLinecap: "round", fill: "none" }), /* @__PURE__ */ React.createElement("path", { d: "M82 54l2 4-4.5 0.5", stroke: "#D4A843", strokeWidth: "2.5", strokeLinecap: "round", strokeLinejoin: "round", fill: "none" }), /* @__PURE__ */ React.createElement("rect", { x: "14", y: "78", width: "72", height: "40", rx: "6", stroke: "#D4A843", strokeWidth: "2.5", fill: "rgba(212,168,67,0.08)" }), /* @__PURE__ */ React.createElement("circle", { cx: "78", cy: "98", r: "2.5", fill: "#D4A843" }), /* @__PURE__ */ React.createElement("line", { x1: "22", y1: "86", x2: "66", y2: "86", stroke: "#D4A843", strokeWidth: "1", opacity: "0.4" }), /* @__PURE__ */ React.createElement("line", { x1: "22", y1: "92", x2: "66", y2: "92", stroke: "#D4A843", strokeWidth: "1", opacity: "0.3" }), /* @__PURE__ */ React.createElement("line", { x1: "22", y1: "98", x2: "66", y2: "98", stroke: "#D4A843", strokeWidth: "1", opacity: "0.3" }), /* @__PURE__ */ React.createElement("line", { x1: "22", y1: "104", x2: "66", y2: "104", stroke: "#D4A843", strokeWidth: "1", opacity: "0.3" }), /* @__PURE__ */ React.createElement("line", { x1: "22", y1: "110", x2: "66", y2: "110", stroke: "#D4A843", strokeWidth: "1", opacity: "0.3" }))), /* @__PURE__ */ React.createElement("h2", { className: "text-xl font-bold text-white mb-2" }, "Now Rotate to Landscape"), /* @__PURE__ */ React.createElement("p", { className: "text-slate-400 text-sm max-w-xs mx-auto mb-10 leading-relaxed" }, "The property search and results table is optimized for landscape view. Turn your phone sideways for the best experience."), /* @__PURE__ */ React.createElement("button", { onClick: onContinue, className: "text-slate-500 text-xs underline underline-offset-4 hover:text-slate-300 transition-colors" }, "Continue in portrait anyway")) : /* @__PURE__ */ React.createElement("div", { className: "fade-in flex flex-col items-center" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mb-4" }, /* @__PURE__ */ React.createElement("div", { className: "w-3 h-3 rounded-full bg-emerald-400 animate-pulse" }), /* @__PURE__ */ React.createElement("span", { className: "text-emerald-400 font-medium" }, "Landscape detected")), /* @__PURE__ */ React.createElement("p", { className: "text-white text-lg font-bold mb-1" }, "Loading analyzer...")));
-};
-const IntroOverlay = ({ onClose }) => {
-  const [pg, setPg] = useState(0);
-  const pages = [
-    {
-      title: "Welcome to Your Newton Investment Analyzer",
-      content: /* @__PURE__ */ React.createElement("div", { className: "space-y-4 text-slate-600" }, /* @__PURE__ */ React.createElement("p", { className: "text-lg" }, "This tool was built specifically for you to identify, evaluate, and prioritize real estate investment opportunities across ", /* @__PURE__ */ React.createElement("strong", { className: "text-navy" }, "all 25,000+ properties in Newton, MA"), "."), /* @__PURE__ */ React.createElement("p", null, "Every property has been scored using a proprietary model that combines ", /* @__PURE__ */ React.createElement("strong", null, "public assessor data"), ", ", /* @__PURE__ */ React.createElement("strong", null, "predictive lead scoring"), " (how likely the owner is to sell), and ", /* @__PURE__ */ React.createElement("strong", null, "real-time market analysis"), " to surface the best deals across four strategies:"), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 gap-3 mt-4" }, /* @__PURE__ */ React.createElement("div", { className: "bg-emerald-50 rounded-lg p-3 border border-emerald-200" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs font-bold text-emerald-700 uppercase" }, "Fix & Flip"), /* @__PURE__ */ React.createElement("p", { className: "text-sm mt-1" }, "Buy, renovate, sell for profit. The primary strategy for Newton.")), /* @__PURE__ */ React.createElement("div", { className: "bg-blue-50 rounded-lg p-3 border border-blue-200" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs font-bold text-blue-700 uppercase" }, "Buy & Hold"), /* @__PURE__ */ React.createElement("p", { className: "text-sm mt-1" }, "Multifamily properties with rental income potential.")), /* @__PURE__ */ React.createElement("div", { className: "bg-purple-50 rounded-lg p-3 border border-purple-200" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs font-bold text-purple-700 uppercase" }, "BRRRR"), /* @__PURE__ */ React.createElement("p", { className: "text-sm mt-1" }, "Buy, Rehab, Rent, Refinance, Repeat. Pull your capital back out.")), /* @__PURE__ */ React.createElement("div", { className: "bg-amber-50 rounded-lg p-3 border border-amber-200" }, /* @__PURE__ */ React.createElement("span", { className: "text-xs font-bold text-amber-700 uppercase" }, "Value-Add"), /* @__PURE__ */ React.createElement("p", { className: "text-sm mt-1" }, "Teardown/rebuild, ADU, or expansion opportunities."))))
-    },
-    {
-      title: "How the Scoring Works",
-      content: /* @__PURE__ */ React.createElement("div", { className: "space-y-4 text-slate-600" }, /* @__PURE__ */ React.createElement("p", null, "Every property receives an ", /* @__PURE__ */ React.createElement("strong", { className: "text-navy" }, "Investment Score from 0 to 12"), ", calculated from four equally weighted factors:"), /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-3 bg-slate-50 rounded-lg p-3" }, /* @__PURE__ */ React.createElement("span", { className: "text-2xl font-bold text-navy w-8 text-center" }, "1"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Price Efficiency (0-3 pts)"), /* @__PURE__ */ React.createElement("p", { className: "text-sm" }, "How far below market the assessed $/sqft is. Lower = more upside."))), /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-3 bg-slate-50 rounded-lg p-3" }, /* @__PURE__ */ React.createElement("span", { className: "text-2xl font-bold text-navy w-8 text-center" }, "2"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Seller Motivation (0-3 pts)"), /* @__PURE__ */ React.createElement("p", { className: "text-sm" }, "How long the owner has held the property. 50+ years = very likely to sell."))), /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-3 bg-slate-50 rounded-lg p-3" }, /* @__PURE__ */ React.createElement("span", { className: "text-2xl font-bold text-navy w-8 text-center" }, "3"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Profit Potential (0-3 pts)"), /* @__PURE__ */ React.createElement("p", { className: "text-sm" }, "Estimated ROI based on purchase price, renovation costs, and ARV."))), /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-3 bg-slate-50 rounded-lg p-3" }, /* @__PURE__ */ React.createElement("span", { className: "text-2xl font-bold text-navy w-8 text-center" }, "4"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Lead Quality (0-3 pts)"), /* @__PURE__ */ React.createElement("p", { className: "text-sm" }, "Predictive lead score and grade \u2014 how likely the owner is to sell soon.")))), /* @__PURE__ */ React.createElement("div", { className: "flex gap-4 mt-3 text-sm" }, /* @__PURE__ */ React.createElement("span", { className: "px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 font-bold" }, "10-12 = Strong"), /* @__PURE__ */ React.createElement("span", { className: "px-3 py-1 rounded-full bg-amber-50 text-amber-700 font-bold" }, "7-9 = Moderate"), /* @__PURE__ */ React.createElement("span", { className: "px-3 py-1 rounded-full bg-slate-100 text-slate-600 font-bold" }, "3-6 = Worth Watching")))
-    },
-    {
-      title: "How to Use This Tool",
-      content: /* @__PURE__ */ React.createElement("div", { className: "space-y-4 text-slate-600" }, /* @__PURE__ */ React.createElement("div", { className: "space-y-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "bg-gold text-white rounded-full w-7 h-7 flex items-center justify-center text-sm font-bold flex-shrink-0" }, "1"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Filter & Search"), /* @__PURE__ */ React.createElement("p", { className: "text-sm" }, "Use the sidebar to narrow results by strategy, village, score, price, lead grade, and more. Type an address or owner name in the search bar."))), /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "bg-gold text-white rounded-full w-7 h-7 flex items-center justify-center text-sm font-bold flex-shrink-0" }, "2"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Click Any Row to Expand"), /* @__PURE__ */ React.createElement("p", { className: "text-sm" }, "See full investment analysis with flip, hold, and BRRRR breakdowns. ", /* @__PURE__ */ React.createElement("strong", null, "Edit any number"), " (purchase price, reno budget, ARV, rent) and watch all metrics recalculate in real time."))), /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "bg-gold text-white rounded-full w-7 h-7 flex items-center justify-center text-sm font-bold flex-shrink-0" }, "3"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Star Properties to Build Your List"), /* @__PURE__ */ React.createElement("p", { className: "text-sm" }, 'Click the star icon on any property to add it to your shortlist. Add as many as you want. Use "Compare" to view side-by-side metrics.'))), /* @__PURE__ */ React.createElement("div", { className: "flex items-start gap-3" }, /* @__PURE__ */ React.createElement("span", { className: "bg-gold text-white rounded-full w-7 h-7 flex items-center justify-center text-sm font-bold flex-shrink-0" }, "4"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("strong", null, "Send Your List"), /* @__PURE__ */ React.createElement("p", { className: "text-sm" }, "When you have properties you want to pursue, hit ", /* @__PURE__ */ React.createElement("strong", null, '"Send List to Zev"'), " to email your shortlist directly. You can also download it as a CSV.")))), /* @__PURE__ */ React.createElement("div", { className: "bg-navy/5 rounded-lg p-4 mt-4 border border-navy/10" }, /* @__PURE__ */ React.createElement("p", { className: "text-sm" }, /* @__PURE__ */ React.createElement("strong", null, "Tip:"), " All estimated values (ARV, reno budget, rent) are starting points based on market data. When you expand a property, override any field with your own numbers to get a custom analysis. The market assumptions used are documented in the app.")))
-    },
-    {
-      title: "Important Notes on the Data",
-      content: /* @__PURE__ */ React.createElement("div", { className: "space-y-4 text-slate-600" }, /* @__PURE__ */ React.createElement("div", { className: "bg-amber-50 border border-amber-200 rounded-lg p-4" }, /* @__PURE__ */ React.createElement("p", { className: "font-bold text-amber-800 mb-2" }, "Assessed values are NOT market values"), /* @__PURE__ */ React.createElement("p", { className: "text-sm" }, `Newton's FY2025 assessed values typically lag true market value by 10-20%. This means the "Assessed Value" column is usually `, /* @__PURE__ */ React.createElement("em", null, "below"), " what the owner would actually accept. Always verify with comps before making an offer.")), /* @__PURE__ */ React.createElement("div", { className: "bg-blue-50 border border-blue-200 rounded-lg p-4" }, /* @__PURE__ */ React.createElement("p", { className: "font-bold text-blue-800 mb-2" }, "Lead Score predicts seller likelihood"), /* @__PURE__ */ React.createElement("p", { className: "text-sm" }, "Grade A (score 9-12) owners are statistically the most likely to sell \u2014 often long-tenure seniors, estate situations, or investors looking to exit. Prioritize Grade A and B for outreach.")), /* @__PURE__ */ React.createElement("div", { className: "bg-emerald-50 border border-emerald-200 rounded-lg p-4" }, /* @__PURE__ */ React.createElement("p", { className: "font-bold text-emerald-800 mb-2" }, "ARV & renovation estimates are starting points"), /* @__PURE__ */ React.createElement("p", { className: "text-sm" }, "The estimated After-Repair Value uses village-specific $/sqft from recent comps. Renovation budgets default to $85/sqft. Override these in the property detail view with your own research for a more accurate analysis.")), /* @__PURE__ */ React.createElement("p", { className: "text-sm text-slate-500 mt-3" }, "Market data sourced from Redfin, Zillow, RentCafe, Freddie Mac, and Newton Assessor's Office (Feb 2026). Full methodology is documented in the companion XLSX report."))
-    }
-  ];
-  const p = pages[pg];
-  return /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 z-50 overlay-bg flex items-end md:items-center justify-center p-0 md:p-4" }, /* @__PURE__ */ React.createElement("div", { className: "bg-white md:rounded-2xl rounded-t-2xl shadow-2xl max-w-2xl w-full max-h-[95vh] md:max-h-[90vh] overflow-hidden flex flex-col" }, /* @__PURE__ */ React.createElement("div", { className: "flex gap-1.5 px-5 md:px-8 pt-5 md:pt-6" }, pages.map((_, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: `h-1.5 flex-1 rounded-full transition-colors ${i <= pg ? "bg-gold" : "bg-slate-200"}` }))), /* @__PURE__ */ React.createElement("div", { className: "px-5 md:px-8 py-5 md:py-6 flex-1 overflow-y-auto slide-in", key: pg }, /* @__PURE__ */ React.createElement("h2", { className: "text-xl md:text-2xl font-bold text-navy mb-3 md:mb-4" }, p.title), p.content), /* @__PURE__ */ React.createElement("div", { className: "px-5 md:px-8 py-4 border-t border-slate-200 flex items-center justify-between bg-slate-50" }, /* @__PURE__ */ React.createElement("button", { onClick: () => pg > 0 ? setPg(pg - 1) : onClose(), className: "px-4 py-2.5 text-sm text-slate-500 hover:text-slate-700" }, pg > 0 ? "\u2190 Back" : "Skip"), /* @__PURE__ */ React.createElement("span", { className: "text-xs text-slate-400" }, pg + 1, " of ", pages.length), pg < pages.length - 1 ? /* @__PURE__ */ React.createElement("button", { onClick: () => setPg(pg + 1), className: "px-6 py-2.5 bg-navy text-white rounded-lg text-sm font-bold hover:bg-navy-light transition-colors" }, "Next ", "\u2192") : /* @__PURE__ */ React.createElement("button", { onClick: onClose, className: "px-6 py-2.5 bg-gold text-white rounded-lg text-sm font-bold hover:bg-gold-dark transition-colors" }, "Get Started ", "\u2192"))));
-};
-const Card = ({ label, value, sub, icon }) => /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl shadow-sm border border-slate-200 p-2.5 md:p-4 flex flex-col" }, /* @__PURE__ */ React.createElement("div", { className: "text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-wider mb-0.5" }, icon, " ", label), /* @__PURE__ */ React.createElement("div", { className: "text-lg md:text-2xl font-bold text-navy leading-tight" }, value), sub && /* @__PURE__ */ React.createElement("div", { className: "text-[10px] md:text-xs text-slate-500 mt-0.5" }, sub));
-const RangeSlider = ({ min, max, step = 1, value, onChange, label, suffix = "" }) => {
-  const pct = (value - min) / (max - min) * 100;
-  return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-0.5" }, /* @__PURE__ */ React.createElement("span", { className: "text-[10px] font-semibold text-slate-500 uppercase tracking-wide" }, label), /* @__PURE__ */ React.createElement("span", { className: "text-[11px] font-bold text-navy bg-navy/5 px-1.5 py-0.5 rounded" }, value, suffix)), /* @__PURE__ */ React.createElement("div", { className: "relative h-6 flex items-center" }, /* @__PURE__ */ React.createElement("div", { className: "absolute left-0 right-0 h-1.5 bg-slate-200 rounded-full overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "h-full bg-gold rounded-full transition-all", style: { width: pct + "%" } })), /* @__PURE__ */ React.createElement("input", { type: "range", min, max, step, value, onChange, className: "range-input absolute w-full" })), /* @__PURE__ */ React.createElement("div", { className: "flex justify-between text-[9px] text-slate-300" }, /* @__PURE__ */ React.createElement("span", null, min, suffix), /* @__PURE__ */ React.createElement("span", null, max, suffix)));
-};
-const FilterBar = ({ filters, setFilters, villages, filtered }) => {
-  const strategies = ["Flip", "Hold", "BRRRR", "Value-Add"];
-  const grades = ["A", "B", "C", "D"];
-  const types = ["SF", "Multi", "Apt", "Condo"];
-  const typeMap = { "SF": "SF", "Multi": "MultiSmall", "Apt": "AptSmall", "Condo": "Condo" };
-  const typeMapReverse = { "SF": "SF", "MultiSmall": "Multi", "AptSmall": "Apt", "Condo": "Condo" };
-  const toggle = (key, val) => {
-    setFilters((f) => {
-      const arr = [...f[key]];
-      const idx = arr.indexOf(val);
-      if (idx >= 0) arr.splice(idx, 1);
-      else arr.push(val);
-      return { ...f, [key]: arr };
-    });
-  };
-  const [showMore, setShowMore] = useState(false);
-  const Chip = ({ active, label, onClick, color, small }) => /* @__PURE__ */ React.createElement("button", { onClick, className: `${small ? "px-2 py-1 text-[10px]" : "px-2.5 py-1.5 text-[11px]"} rounded-full font-semibold transition-all ${active ? color || "bg-navy text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}` }, label);
-  const resetFilters = () => setFilters({ strategies: [], villages: [], grades: [], types: [], minScore: 3, minPrice: 0, maxPrice: 1e7, minTenure: 0, minROI: 0, search: "" });
-  return /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl shadow-sm border border-slate-200 p-2 lg:p-3 no-print" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-wrap" }, /* @__PURE__ */ React.createElement("input", { type: "text", placeholder: "Search address, owner...", value: filters.search, onChange: (e) => setFilters((f) => ({ ...f, search: e.target.value })), className: "flex-1 min-w-[120px] max-w-[200px] lg:max-w-[260px] px-2.5 py-1.5 text-[11px] lg:text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gold/40" }), strategies.map((s) => /* @__PURE__ */ React.createElement(Chip, { key: s, label: s, active: filters.strategies.includes(s), onClick: () => toggle("strategies", s), color: filters.strategies.includes(s) ? stratColor(s) + " text-white" : "", small: true })), grades.map((g) => /* @__PURE__ */ React.createElement(Chip, { key: g, label: g, active: filters.grades.includes(g), onClick: () => toggle("grades", g), small: true })), /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-slate-400 font-medium ml-auto" }, filtered, " results"), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowMore(!showMore), className: "text-[10px] text-gold font-semibold hover:text-gold-dark" }, showMore ? "Less" : "More"), /* @__PURE__ */ React.createElement("button", { onClick: resetFilters, className: "text-[10px] text-slate-400 hover:text-red-400" }, "Reset")), showMore && /* @__PURE__ */ React.createElement("div", { className: "mt-2 pt-2 border-t border-slate-100 fade-in" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-2" }, /* @__PURE__ */ React.createElement(RangeSlider, { label: "Min Score", min: 0, max: 12, value: filters.minScore, onChange: (e) => setFilters((f) => ({ ...f, minScore: +e.target.value })) }), /* @__PURE__ */ React.createElement(RangeSlider, { label: "Min Tenure", min: 0, max: 125, value: filters.minTenure, onChange: (e) => setFilters((f) => ({ ...f, minTenure: +e.target.value })), suffix: " yrs" }), /* @__PURE__ */ React.createElement(RangeSlider, { label: "Min ROI", min: 0, max: 100, step: 5, value: filters.minROI, onChange: (e) => setFilters((f) => ({ ...f, minROI: +e.target.value })), suffix: "%" }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1" }, "Price Range"), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1" }, /* @__PURE__ */ React.createElement("input", { type: "number", step: "50000", placeholder: "Min", value: filters.minPrice || "", onChange: (e) => setFilters((f) => ({ ...f, minPrice: +e.target.value })), className: "w-full px-1.5 py-1 text-[11px] border border-slate-200 rounded" }), /* @__PURE__ */ React.createElement("input", { type: "number", step: "50000", placeholder: "Max", value: filters.maxPrice < 1e7 ? filters.maxPrice : "", onChange: (e) => setFilters((f) => ({ ...f, maxPrice: +e.target.value || 1e7 })), className: "w-full px-1.5 py-1 text-[11px] border border-slate-200 rounded" })))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mt-2 flex-wrap" }, /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-slate-400 font-semibold" }, "Type:"), types.map((t) => /* @__PURE__ */ React.createElement(Chip, { key: t, label: t, active: filters.types.includes(typeMap[t]), onClick: () => toggle("types", typeMap[t]), small: true })), /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-slate-400 font-semibold ml-2" }, "Village:"), /* @__PURE__ */ React.createElement("select", { value: filters.villages[0] || "", onChange: (e) => setFilters((f) => ({ ...f, villages: e.target.value ? [e.target.value] : [] })), className: "text-[11px] border border-slate-200 rounded px-1.5 py-1" }, /* @__PURE__ */ React.createElement("option", { value: "" }, "All"), villages.map((v) => /* @__PURE__ */ React.createElement("option", { key: v, value: v }, v))))));
-};
-const PropertyDetail = ({ prop, market, onClose, onToggleStar, isStarred }) => {
-  const [overrides, setOverrides] = useState({
-    purchasePrice: prop.assessedValue,
-    renoBudget: prop.estRenoBudget,
-    arvEstimate: prop.estARV,
-    monthlyRent: prop.estMonthlyRent,
-    interestRate: market.mortgageRate * 100,
-    downPayment: market.downPaymentPct * 100,
-    holdingMonths: prop.strategy === "Flip" ? market.holdingMonths_flip : 12
-  });
-  const set = (k, v) => setOverrides((o) => ({ ...o, [k]: v }));
-  const calc = useMemo(() => {
-    const pp = overrides.purchasePrice;
-    const reno = overrides.renoBudget;
-    const arv = overrides.arvEstimate;
-    const rent = overrides.monthlyRent;
-    const rate = overrides.interestRate / 100;
-    const dp = overrides.downPayment / 100;
-    const months = overrides.holdingMonths;
-    const holdCost = pp * (rate * months / 12);
-    const closingCost = pp * market.closingCostPct;
-    const sellingCost = arv * market.sellingCostPct;
-    const totalCost = reno + holdCost + closingCost + sellingCost;
-    const netProfit = arv - pp - totalCost;
-    const roi = pp + reno > 0 ? netProfit / (pp + reno) * 100 : 0;
-    const loanAmt = pp * (1 - dp);
-    const monthlyMortgage = calcMortgage(loanAmt, rate);
-    const monthlyTax = pp * market.taxRate / 12;
-    const monthlyIns = market.insuranceAnnual / 12;
-    const monthlyMaint = pp * market.maintenancePct / 12;
-    const monthlyVacancy = rent * market.vacancyRate;
-    const totalExpense = monthlyMortgage + monthlyTax + monthlyIns + monthlyMaint + monthlyVacancy;
-    const cashflow = rent - totalExpense;
-    const annualRent = rent * 12;
-    const annualNOI = annualRent * (1 - market.vacancyRate) - pp * market.taxRate - market.insuranceAnnual - pp * market.maintenancePct;
-    const capRate = pp > 0 ? annualNOI / pp * 100 : 0;
-    const grossYield = pp > 0 ? annualRent / pp * 100 : 0;
-    const refiAmt = arv * market.refiLTV;
-    const cashIn = pp + reno;
-    const cashLeft = cashIn - refiAmt;
-    const refiMortgage = calcMortgage(refiAmt, rate);
-    const brrrCashflow = rent - (refiMortgage + monthlyTax + monthlyIns + monthlyMaint + monthlyVacancy);
-    const score = (() => {
-      let s = 0;
-      const psf = prop.sqft > 0 ? pp / prop.sqft : 999;
-      if (psf < 350) s += 3;
-      else if (psf < 450) s += 2;
-      else if (psf < 550) s += 1;
-      if (prop.tenure >= 50) s += 3;
-      else if (prop.tenure >= 35) s += 2;
-      else if (prop.tenure >= 25) s += 1;
-      if (roi > 30) s += 3;
-      else if (roi > 20) s += 2;
-      else if (roi > 10) s += 1;
-      if (prop.leadScore >= 11 && prop.leadGrade === "A") s += 3;
-      else if (prop.leadScore >= 9 || prop.leadGrade === "A") s += 2;
-      else if (prop.leadScore >= 7 || prop.leadGrade === "B") s += 1;
-      return s;
-    })();
-    return { netProfit, roi, holdCost, closingCost, sellingCost, totalCost, cashflow, monthlyMortgage, monthlyTax, monthlyIns, monthlyMaint, monthlyVacancy, totalExpense, capRate, grossYield, annualRent, annualNOI, refiAmt, cashIn, cashLeft, refiMortgage, brrrCashflow, score };
-  }, [overrides, market, prop]);
-  const InputField = ({ label, value, onChange, prefix, suffix }) => /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between py-1 border-b border-slate-100" }, /* @__PURE__ */ React.createElement("span", { className: "text-[10px] lg:text-xs text-slate-600" }, label), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-0.5" }, prefix && /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-slate-400" }, prefix), /* @__PURE__ */ React.createElement("input", { type: "number", value, onChange: (e) => onChange(+e.target.value), className: "w-20 lg:w-24 text-right text-[11px] lg:text-sm font-medium px-1.5 py-0.5 border border-slate-200 rounded focus:ring-2 focus:ring-gold/40 focus:outline-none" }), suffix && /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-slate-400" }, suffix)));
-  const Row = ({ label, value, highlight }) => /* @__PURE__ */ React.createElement("div", { className: `flex justify-between py-0.5 text-[11px] lg:text-sm ${highlight ? "font-bold text-navy" : "text-slate-600"}` }, /* @__PURE__ */ React.createElement("span", null, label), /* @__PURE__ */ React.createElement("span", { className: highlight ? "text-sm lg:text-lg" : "" }, value));
-  return /* @__PURE__ */ React.createElement("div", { className: "detail-modal", onClick: (e) => {
-    if (e.target === e.currentTarget) onClose();
-  } }, /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl shadow-2xl max-w-4xl w-full mx-auto my-2 lg:my-6 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "bg-navy text-white px-3 lg:px-6 py-3 flex items-center justify-between" }, /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("h3", { className: "text-sm lg:text-xl font-bold truncate" }, prop.address), /* @__PURE__ */ React.createElement("p", { className: "text-[10px] lg:text-sm text-slate-300 truncate" }, prop.village, ", MA ", prop.zip, " \xB7 ", prop.homeType, " \xB7 ", prop.owner)), /* @__PURE__ */ React.createElement("div", { className: "flex gap-2 flex-shrink-0 ml-2" }, /* @__PURE__ */ React.createElement("button", { onClick: () => onToggleStar(prop.id), className: `px-2 lg:px-3 py-1.5 rounded-lg text-[11px] lg:text-sm font-medium transition-all ${isStarred ? "bg-gold text-white" : "bg-white/10 text-white hover:bg-white/20"}` }, isStarred ? "\u2605" : "\u2606"), /* @__PURE__ */ React.createElement("button", { onClick: onClose, className: "px-2 lg:px-3 py-1.5 rounded-lg text-[11px] lg:text-sm bg-white/10 text-white hover:bg-white/20" }, "\u2715"))), /* @__PURE__ */ React.createElement("div", { className: "px-3 lg:px-6 py-3 lg:py-4" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 mb-3 flex-wrap" }, /* @__PURE__ */ React.createElement("span", { className: `px-2 py-1 rounded-full text-[10px] lg:text-xs font-bold text-white ${stratColor(prop.strategy)}` }, prop.strategy), /* @__PURE__ */ React.createElement("span", { className: `px-2 py-1 rounded-full text-[10px] lg:text-xs font-bold ${scoreColor(calc.score)}` }, "Score: ", calc.score, "/12"), /* @__PURE__ */ React.createElement("span", { className: `px-2 py-1 rounded-full text-[10px] lg:text-xs font-bold ${gradeColor(prop.leadGrade)}` }, "Grade ", prop.leadGrade), prop.yearBuilt && /* @__PURE__ */ React.createElement("span", { className: "text-[10px] text-slate-400" }, "Built ", prop.yearBuilt)), /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-6" }, /* @__PURE__ */ React.createElement("div", { className: "space-y-0.5 col-span-2 lg:col-span-1" }, /* @__PURE__ */ React.createElement("h4", { className: "font-bold text-[11px] lg:text-sm text-navy mb-1 border-b-2 border-gold pb-1" }, "Adjustable Inputs"), /* @__PURE__ */ React.createElement(InputField, { label: "Purchase", value: overrides.purchasePrice, onChange: (v) => set("purchasePrice", v), prefix: "$" }), /* @__PURE__ */ React.createElement(InputField, { label: "Reno Budget", value: overrides.renoBudget, onChange: (v) => set("renoBudget", v), prefix: "$" }), /* @__PURE__ */ React.createElement(InputField, { label: "ARV", value: overrides.arvEstimate, onChange: (v) => set("arvEstimate", v), prefix: "$" }), /* @__PURE__ */ React.createElement(InputField, { label: "Rent/mo", value: overrides.monthlyRent, onChange: (v) => set("monthlyRent", v), prefix: "$" }), /* @__PURE__ */ React.createElement(InputField, { label: "Rate", value: overrides.interestRate, onChange: (v) => set("interestRate", v), suffix: "%" }), /* @__PURE__ */ React.createElement(InputField, { label: "Down Pmt", value: overrides.downPayment, onChange: (v) => set("downPayment", v), suffix: "%" }), /* @__PURE__ */ React.createElement(InputField, { label: "Hold", value: overrides.holdingMonths, onChange: (v) => set("holdingMonths", v), suffix: "mo" })), /* @__PURE__ */ React.createElement("div", { className: "space-y-0.5" }, /* @__PURE__ */ React.createElement("h4", { className: "font-bold text-[11px] lg:text-sm text-navy mb-1 border-b-2 border-emerald-500 pb-1" }, "Flip Analysis"), /* @__PURE__ */ React.createElement(Row, { label: "Purchase", value: fmt(overrides.purchasePrice) }), /* @__PURE__ */ React.createElement(Row, { label: "+ Reno", value: fmt(overrides.renoBudget) }), /* @__PURE__ */ React.createElement(Row, { label: "+ Hold", value: fmt(calc.holdCost) }), /* @__PURE__ */ React.createElement(Row, { label: "+ Closing", value: fmt(calc.closingCost) }), /* @__PURE__ */ React.createElement(Row, { label: "+ Selling", value: fmt(calc.sellingCost) }), /* @__PURE__ */ React.createElement(Row, { label: "ARV", value: fmt(overrides.arvEstimate) }), /* @__PURE__ */ React.createElement("div", { className: "border-t-2 border-navy pt-1 mt-1" }, /* @__PURE__ */ React.createElement(Row, { label: "Profit", value: fmt(calc.netProfit), highlight: true }), /* @__PURE__ */ React.createElement(Row, { label: "ROI", value: fmt(calc.roi, "percent"), highlight: true })), /* @__PURE__ */ React.createElement("h4", { className: "font-bold text-[11px] lg:text-sm text-navy mt-3 mb-1 border-b-2 border-purple-500 pb-1" }, "BRRRR"), /* @__PURE__ */ React.createElement(Row, { label: "Cash In", value: fmt(calc.cashIn) }), /* @__PURE__ */ React.createElement(Row, { label: "Refi (75%)", value: fmt(calc.refiAmt) }), /* @__PURE__ */ React.createElement(Row, { label: "Cash Left", value: fmt(calc.cashLeft), highlight: true }), /* @__PURE__ */ React.createElement(Row, { label: "CF/mo", value: fmt(calc.brrrCashflow) })), /* @__PURE__ */ React.createElement("div", { className: "space-y-0.5" }, /* @__PURE__ */ React.createElement("h4", { className: "font-bold text-[11px] lg:text-sm text-navy mb-1 border-b-2 border-blue-500 pb-1" }, "Hold / Rental"), /* @__PURE__ */ React.createElement(Row, { label: "Rent", value: fmt(overrides.monthlyRent) }), /* @__PURE__ */ React.createElement(Row, { label: "- Mortgage", value: fmt(-calc.monthlyMortgage) }), /* @__PURE__ */ React.createElement(Row, { label: "- Tax", value: fmt(-calc.monthlyTax) }), /* @__PURE__ */ React.createElement(Row, { label: "- Ins", value: fmt(-calc.monthlyIns) }), /* @__PURE__ */ React.createElement(Row, { label: "- Maint", value: fmt(-calc.monthlyMaint) }), /* @__PURE__ */ React.createElement(Row, { label: "- Vacancy", value: fmt(-calc.monthlyVacancy) }), /* @__PURE__ */ React.createElement("div", { className: "border-t-2 border-navy pt-1 mt-1" }, /* @__PURE__ */ React.createElement(Row, { label: "CF/mo", value: fmt(calc.cashflow), highlight: true }), /* @__PURE__ */ React.createElement(Row, { label: "NOI/yr", value: fmt(calc.annualNOI) }), /* @__PURE__ */ React.createElement(Row, { label: "Yield", value: fmt(calc.grossYield, "percent") }), /* @__PURE__ */ React.createElement(Row, { label: "Cap Rate", value: fmt(calc.capRate, "percent") })))), /* @__PURE__ */ React.createElement("div", { className: "mt-3 bg-slate-50 rounded-lg p-2 text-[10px] lg:text-xs text-slate-500" }, /* @__PURE__ */ React.createElement("strong", null, "Data:"), " ", fmt(prop.assessedValue), " \xB7 ", fmt(prop.sqft, "number"), " sqft \xB7 ", fmt(prop.pricePerSqft), "/sqft \xB7 Tenure: ", prop.tenure, " yrs \xB7 Lead: ", prop.leadScore, " \xB7 ", prop.segment, prop.lotSize && ` \xB7 Lot: ${prop.lotSize} ac`, prop.zoning && ` \xB7 Zone: ${prop.zoning}`))));
-};
-const CompareView = ({ properties, market, onClose }) => {
-  if (properties.length === 0) return null;
-  const metrics = [
-    ["Assessed Value", (p) => fmt(p.assessedValue)],
-    ["Sqft", (p) => fmt(p.sqft, "number")],
-    ["$/Sqft", (p) => fmt(p.pricePerSqft)],
-    ["Year Built", (p) => p.yearBuilt || "\u2014"],
-    ["Tenure (yrs)", (p) => p.tenure],
-    ["Lead Score", (p) => p.leadScore],
-    ["Grade", (p) => p.leadGrade],
-    ["Strategy", (p) => p.strategy],
-    ["Inv Score", (p) => p.investmentScore + "/12"],
-    ["Est ARV", (p) => fmt(p.estARV)],
-    ["Reno Budget", (p) => fmt(p.estRenoBudget)],
-    ["Est Profit", (p) => fmt(p.estProfit)],
-    ["Est ROI", (p) => fmt(p.estROI, "percent")],
-    ["Monthly Rent", (p) => fmt(p.estMonthlyRent)],
-    ["Gross Yield", (p) => fmt(p.estGrossYield, "percent")],
-    ["BRRRR Cash Left", (p) => fmt(p.brrrr_cashLeft)]
-  ];
-  return /* @__PURE__ */ React.createElement("div", { className: "bg-white rounded-xl shadow-lg border border-slate-200 p-6 mb-6 fade-in" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between mb-4" }, /* @__PURE__ */ React.createElement("h3", { className: "font-bold text-navy text-lg" }, "Property Comparison (", properties.length, ")"), /* @__PURE__ */ React.createElement("button", { onClick: onClose, className: "text-sm text-slate-500 hover:text-slate-700" }, "Close Comparison")), /* @__PURE__ */ React.createElement("div", { className: "overflow-x-auto" }, /* @__PURE__ */ React.createElement("table", { className: "w-full text-sm" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { className: "bg-navy text-white" }, /* @__PURE__ */ React.createElement("th", { className: "text-left px-3 py-2 font-semibold" }, "Metric"), properties.map((p) => /* @__PURE__ */ React.createElement("th", { key: p.id, className: "text-right px-3 py-2 font-semibold" }, p.address.substring(0, 25))))), /* @__PURE__ */ React.createElement("tbody", null, metrics.map(([label, fn], i) => /* @__PURE__ */ React.createElement("tr", { key: label, className: i % 2 === 0 ? "bg-slate-50" : "" }, /* @__PURE__ */ React.createElement("td", { className: "px-3 py-1.5 font-medium text-slate-600" }, label), properties.map((p) => /* @__PURE__ */ React.createElement("td", { key: p.id, className: "text-right px-3 py-1.5" }, fn(p)))))))));
-};
-const App = () => {
-  const [allData, setAllData] = useState(window.__PROPERTIES__ || null);
-  const market = window.__MARKET__;
-  const stats = window.__STATS__;
-  useEffect(() => {
-    var sp = document.getElementById("splash");
-    if (sp) sp.parentNode.removeChild(sp);
-  }, []);
-  useEffect(() => {
-    if (!allData) {
-      const s = document.createElement("script");
-      s.src = "data.js";
-      s.onload = () => setAllData(window.__PROPERTIES__);
-      document.body.appendChild(s);
-    }
-  }, []);
-  const [filters, setFilters] = useState({
-    strategies: [],
-    villages: [],
-    grades: [],
-    types: [],
-    minScore: 3,
-    minPrice: 0,
-    maxPrice: 1e7,
-    minTenure: 0,
-    minROI: 0,
-    search: ""
-  });
-  const [appPhase, setAppPhase] = useState("guide");
-  const [sortKey, setSortKey] = useState("investmentScore");
-  const [sortDir, setSortDir] = useState(-1);
-  const [expandedId, setExpandedId] = useState(null);
-  const [starred, setStarred] = useState(/* @__PURE__ */ new Set());
-  const [showCompare, setShowCompare] = useState(false);
-  const [showIntro, setShowIntro] = useState(false);
-  const [sendStatus, setSendStatus] = useState(null);
+  }, [landscape, onContinue]);
+
+  return h("div",{className:"fixed inset-0 flex flex-col items-center justify-center p-8",style:{background:"#0F1A2E",zIndex:100}},
+    h(LogoSVG),
+    h("h1",{className:"text-white text-2xl font-bold mt-6 mb-2 text-center"},"Newton MA"),
+    h("p",{className:"text-gold text-sm font-medium mb-8"},"Investment Analyzer"),
+    h("div",{className:"mb-4"},h(PhoneRotateIcon)),
+    h("p",{className:"text-white text-lg font-semibold mb-2"},"Rotate to Landscape"),
+    h("p",{className:"text-slate-400 text-sm mb-8 text-center"},"For the best experience on mobile"),
+    h("button",{onClick:onContinue,className:"text-slate-500 text-xs underline hover:text-slate-300 transition-colors"},"Continue in portrait anyway"),
+  );
+}
+
+// ── IntroGuide ─────────────────────────────────────────────
+function IntroGuide({onClose}) {
   const [page, setPage] = useState(0);
-  const PAGE_SIZE = 50;
-  const villages = useMemo(() => [...new Set(allData.map((p) => p.village))].sort(), [allData]);
-  const filtered = useMemo(() => {
-    let d = allData.filter((p) => {
-      if (filters.strategies.length && !filters.strategies.includes(p.strategy)) return false;
-      if (filters.villages.length && !filters.villages.includes(p.village)) return false;
-      if (filters.grades.length && !filters.grades.includes(p.leadGrade)) return false;
-      if (filters.types.length && !filters.types.includes(p.homeType)) return false;
-      if (p.investmentScore < filters.minScore) return false;
-      if (p.assessedValue < filters.minPrice || p.assessedValue > filters.maxPrice) return false;
-      if (p.tenure < filters.minTenure) return false;
-      if (p.estROI < filters.minROI) return false;
-      if (filters.search) {
-        const s = filters.search.toLowerCase();
-        if (!p.address.toLowerCase().includes(s) && !p.owner.toLowerCase().includes(s) && !p.segment.toLowerCase().includes(s) && !p.village.toLowerCase().includes(s)) return false;
-      }
-      return true;
-    });
-    d.sort((a, b) => {
-      let av = a[sortKey], bv = b[sortKey];
-      if (av == null) av = -Infinity;
-      if (bv == null) bv = -Infinity;
-      return (av < bv ? -1 : av > bv ? 1 : 0) * sortDir;
-    });
-    return d;
-  }, [allData, filters, sortKey, sortDir]);
-  const paged = useMemo(() => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [filtered, page]);
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  useEffect(() => setPage(0), [filters, sortKey, sortDir]);
-  const handleSort = (key) => {
-    if (sortKey === key) setSortDir((d) => d * -1);
-    else {
-      setSortKey(key);
-      setSortDir(-1);
-    }
+  const pages = [
+    // Page 0: Welcome
+    () => h("div",{className:"fade-in"},
+      h("h2",{className:"text-2xl font-bold text-navy mb-2"},"Welcome to Your Investment Analyzer"),
+      h("p",{className:"text-slate-500 mb-6"},"We've analyzed 25,000+ Newton properties and scored each for investment potential."),
+      h("div",{className:"grid grid-cols-2 gap-3"},
+        ...[["Flip","Buy, renovate, sell for profit","bg-emerald-50 border-emerald-200 text-emerald-700"],
+            ["Hold","Long-term rental income","bg-blue-50 border-blue-200 text-blue-700"],
+            ["BRRRR","Buy, Rehab, Rent, Refinance, Repeat","bg-purple-50 border-purple-200 text-purple-700"],
+            ["Value-Add","Underdeveloped land or repositioning","bg-amber-50 border-amber-200 text-amber-700"]
+        ].map(([t,d,c]) => h("div",{key:t,className:"rounded-lg border p-3 "+c},
+          h("div",{className:"font-bold text-sm mb-1"},t),
+          h("div",{className:"text-xs opacity-75"},d)
+        ))
+      ),
+    ),
+    // Page 1: Scoring
+    () => h("div",{className:"fade-in"},
+      h("h2",{className:"text-2xl font-bold text-navy mb-2"},"How Properties Are Scored"),
+      h("p",{className:"text-slate-500 mb-4"},"Each property is scored 0–12 across four factors (3 points each):"),
+      h("div",{className:"grid grid-cols-2 gap-3 mb-4"},
+        ...[["Price Efficiency","$/sqft relative to area median"],
+            ["Seller Motivation","Years of ownership (tenure)"],
+            ["Profit Potential","Estimated flip ROI %"],
+            ["Lead Quality","Predictive lead score & grade"]
+        ].map(([t,d]) => h("div",{key:t,className:"bg-slate-50 rounded-lg p-3"},
+          h("div",{className:"font-semibold text-sm text-navy"},t),
+          h("div",{className:"text-xs text-slate-500"},d)
+        ))
+      ),
+      h("div",{className:"flex gap-3 items-center justify-center"},
+        ...[["10–12","Strong","bg-emerald-500 text-white"],
+            ["7–9","Moderate","bg-amber-400 text-amber-900"],
+            ["3–6","Worth Watching","bg-slate-300 text-slate-700"]
+        ].map(([r,l,c]) => h("div",{key:r,className:"flex items-center gap-2"},
+          h("span",{className:"inline-block px-2 py-1 rounded-full text-xs font-bold "+c},r),
+          h("span",{className:"text-sm text-slate-600"},l)
+        ))
+      ),
+    ),
+    // Page 2: How to Use
+    () => h("div",{className:"fade-in"},
+      h("h2",{className:"text-2xl font-bold text-navy mb-4"},"How to Use"),
+      h("div",{className:"grid grid-cols-2 gap-4"},
+        ...[[1,"Filter & Search","Use strategy chips, grade filters, and the search bar to narrow results"],
+            [2,"Click to Expand","Tap any property row to see full financial analysis with editable inputs"],
+            [3,"Star Properties","Build a shortlist by starring your favorite opportunities"],
+            [4,"Send Your List","Email your shortlist or download as CSV for further analysis"]
+        ].map(([n,t,d]) => h("div",{key:n,className:"flex gap-3"},
+          h("div",{className:"flex-none w-8 h-8 rounded-full bg-gold text-white flex items-center justify-center font-bold text-sm"},n),
+          h("div",null,
+            h("div",{className:"font-semibold text-navy text-sm"},t),
+            h("div",{className:"text-xs text-slate-500"},d)
+          )
+        ))
+      ),
+    ),
+    // Page 3: Data Notes
+    () => h("div",{className:"fade-in"},
+      h("h2",{className:"text-2xl font-bold text-navy mb-4"},"Important Data Notes"),
+      h("div",{className:"space-y-3"},
+        ...[["Assessed Values","City assessments typically lag market value by 10–20%. Actual purchase prices will differ.","bg-blue-50 border-blue-200"],
+            ["Lead Scores","Our predictive model scores seller likelihood based on tenure, ownership patterns, and property characteristics.","bg-emerald-50 border-emerald-200"],
+            ["ARV & Reno Estimates","After-repair values and renovation costs are starting points. Always verify with local comps and contractor bids.","bg-amber-50 border-amber-200"]
+        ].map(([t,d,c]) => h("div",{key:t,className:"rounded-lg border p-4 "+c},
+          h("div",{className:"font-bold text-sm text-navy mb-1"},t),
+          h("div",{className:"text-xs text-slate-600 leading-relaxed"},d)
+        ))
+      ),
+    ),
+  ];
+
+  return h("div",{className:"fixed inset-0 flex items-center justify-center p-4",style:{background:"rgba(15,26,46,.9)",zIndex:90}},
+    h("div",{className:"bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 slide-in"},
+      // Progress dots
+      h("div",{className:"flex justify-center gap-2 mb-6"},
+        ...pages.map((_,i) => h("div",{key:i,className:"w-2.5 h-2.5 rounded-full transition-colors "+(i===page?"bg-gold":"bg-slate-200")}))
+      ),
+      // Content
+      pages[page](),
+      // Navigation
+      h("div",{className:"flex items-center justify-between mt-6 pt-4 border-t border-slate-100"},
+        h("button",{onClick:onClose,className:"text-slate-400 text-sm hover:text-slate-600"},"Skip"),
+        h("div",{className:"text-sm text-slate-400"},page+1+" / "+pages.length),
+        page < pages.length - 1
+          ? h("button",{onClick:()=>setPage(page+1),className:"bg-navy text-white px-5 py-2 rounded-lg font-semibold text-sm hover:bg-navy-light transition-colors"},
+              "Next \u2192")
+          : h("button",{onClick:onClose,className:"bg-gold text-white px-5 py-2 rounded-lg font-semibold text-sm hover:bg-gold-light transition-colors"},
+              "Get Started \u2192")
+      ),
+    ),
+  );
+}
+
+// ── Dashboard Cards ────────────────────────────────────────
+function DashboardCards({stats, filteredCount}) {
+  const cards = [
+    {label:"Properties Analyzed",value:stats.totalAnalyzed.toLocaleString(),sub:"Newton, MA"},
+    {label:"Median Value",value:fmtK(stats.medianVal),sub:"assessed"},
+    {label:"Median $/sqft",value:"$"+stats.medianPsf,sub:"of scored properties"},
+    {label:"Mortgage Rate",value:stats.mortgageRate.toFixed(2)+"%",sub:"30yr fixed"},
+    {label:"Tax Rate",value:"$"+stats.taxRate.toFixed(2)+"/1K",sub:"annual"},
+    {label:"Opportunities",value:filteredCount.toLocaleString(),sub:Object.entries(stats.strategies).map(([k,v])=>v+" "+k).join(" · ")},
+  ];
+  return h("div",{className:"dash-cards grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4"},
+    ...cards.map((c,i) => h("div",{key:i,className:"bg-white rounded-xl shadow-sm border border-slate-200 p-3"},
+      h("div",{className:"text-[10px] uppercase tracking-wider text-slate-400 font-medium mb-1"},c.label),
+      h("div",{className:"text-lg font-bold text-navy"},c.value),
+      h("div",{className:"text-[10px] text-slate-400"},c.sub),
+    ))
+  );
+}
+
+// ── Filter Bar ─────────────────────────────────────────────
+function FilterBar({filters, setFilters, filtered, stats, onReset}) {
+  const [expanded, setExpanded] = useState(false);
+  const villages = useMemo(() => Object.keys(stats.villages || {}).sort(), [stats]);
+  const toggle = (arr, val) => arr.includes(val) ? arr.filter(v=>v!==val) : [...arr, val];
+
+  const chip = (label, active, onClick, color) =>
+    h("button",{onClick,className:
+      "px-3 py-1.5 rounded-full text-xs font-bold border transition-all " +
+      (active ? color + " border-transparent" : "bg-white text-slate-500 border-slate-200 hover:border-slate-300")
+    },label);
+
+  return h("div",{className:"filter-panel bg-white rounded-xl shadow-sm border border-slate-200 p-3 mb-4"},
+    // Row 1: Search + Strategy + Grade + Count + More + Reset
+    h("div",{className:"flex flex-wrap items-center gap-2"},
+      h("input",{type:"text",placeholder:"Search address or owner\u2026",value:filters.search,
+        onChange:e=>setFilters({...filters,search:e.target.value}),
+        className:"flex-1 min-w-[140px] border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gold/50 focus:border-gold"}),
+      // Strategy chips
+      ...["Flip","Hold","BRRRR","Value-Add"].map(s => {
+        const c = STRAT_COLORS[s];
+        return chip(s, filters.strategies.includes(s), ()=>setFilters({...filters,strategies:toggle(filters.strategies,s)}),
+          c.bg+" "+c.text);
+      }),
+      h("span",{className:"text-slate-300"}," | "),
+      // Grade chips
+      ...["A","B","C","D"].map(g =>
+        chip(g, filters.grades.includes(g), ()=>setFilters({...filters,grades:toggle(filters.grades,g)}),
+          GRADE_COLORS[g])
+      ),
+      h("span",{className:"text-sm text-slate-500 font-medium ml-2"},filtered+" results"),
+      h("button",{onClick:()=>setExpanded(!expanded),className:"text-xs text-navy font-semibold hover:underline"},expanded?"Less":"More"),
+      h("button",{onClick:onReset,className:"text-xs text-red-500 font-medium hover:underline"},"Reset"),
+    ),
+    // Expanded filters
+    expanded && h("div",{className:"mt-3 pt-3 border-t border-slate-100 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 fade-in"},
+      // Min Score
+      h("div",null,
+        h("label",{className:"text-[10px] text-slate-400 uppercase font-medium"},"Min Score: "+filters.minScore),
+        h("div",{className:"relative mt-1"},
+          h("div",{className:"absolute top-[11px] left-0 right-0 h-[6px] rounded bg-slate-200"}),
+          h("div",{className:"absolute top-[11px] left-0 h-[6px] rounded bg-gold",style:{width:(filters.minScore/12*100)+"%"}}),
+          h("input",{type:"range",min:0,max:12,value:filters.minScore,
+            onChange:e=>setFilters({...filters,minScore:+e.target.value}),
+            className:"range-input"})
+        )
+      ),
+      // Min Tenure
+      h("div",null,
+        h("label",{className:"text-[10px] text-slate-400 uppercase font-medium"},"Min Tenure: "+filters.minTenure+" yrs"),
+        h("div",{className:"relative mt-1"},
+          h("div",{className:"absolute top-[11px] left-0 right-0 h-[6px] rounded bg-slate-200"}),
+          h("div",{className:"absolute top-[11px] left-0 h-[6px] rounded bg-gold",style:{width:(filters.minTenure/125*100)+"%"}}),
+          h("input",{type:"range",min:0,max:125,value:filters.minTenure,
+            onChange:e=>setFilters({...filters,minTenure:+e.target.value}),
+            className:"range-input"})
+        )
+      ),
+      // Min ROI
+      h("div",null,
+        h("label",{className:"text-[10px] text-slate-400 uppercase font-medium"},"Min ROI: "+filters.minROI+"%"),
+        h("div",{className:"relative mt-1"},
+          h("div",{className:"absolute top-[11px] left-0 right-0 h-[6px] rounded bg-slate-200"}),
+          h("div",{className:"absolute top-[11px] left-0 h-[6px] rounded bg-gold",style:{width:filters.minROI+"%"}}),
+          h("input",{type:"range",min:0,max:100,value:filters.minROI,
+            onChange:e=>setFilters({...filters,minROI:+e.target.value}),
+            className:"range-input"})
+        )
+      ),
+      // Price Range
+      h("div",null,
+        h("label",{className:"text-[10px] text-slate-400 uppercase font-medium"},"Price Range"),
+        h("div",{className:"flex gap-1 mt-1"},
+          h("input",{type:"number",placeholder:"Min",value:filters.minPrice||"",
+            onChange:e=>setFilters({...filters,minPrice:e.target.value?+e.target.value:""}),
+            className:"w-1/2 border border-slate-200 rounded px-2 py-1 text-xs"}),
+          h("input",{type:"number",placeholder:"Max",value:filters.maxPrice||"",
+            onChange:e=>setFilters({...filters,maxPrice:e.target.value?+e.target.value:""}),
+            className:"w-1/2 border border-slate-200 rounded px-2 py-1 text-xs"}),
+        )
+      ),
+      // Type chips
+      h("div",null,
+        h("label",{className:"text-[10px] text-slate-400 uppercase font-medium"},"Type"),
+        h("div",{className:"flex flex-wrap gap-1 mt-1"},
+          ...["SF","MultiSmall","AptSmall","Condo"].map(t =>
+            h("button",{key:t,onClick:()=>setFilters({...filters,types:toggle(filters.types,t)}),
+              className:"px-2 py-1 rounded text-[10px] font-medium border transition-all "+
+                (filters.types.includes(t)?"bg-navy text-white border-navy":"bg-white text-slate-500 border-slate-200")
+            },t==="MultiSmall"?"Multi":t==="AptSmall"?"Apt":t)
+          )
+        )
+      ),
+      // Village
+      h("div",null,
+        h("label",{className:"text-[10px] text-slate-400 uppercase font-medium"},"Village"),
+        h("select",{value:filters.village,onChange:e=>setFilters({...filters,village:e.target.value}),
+          className:"w-full mt-1 border border-slate-200 rounded px-2 py-1.5 text-xs bg-white"},
+          h("option",{value:""},"All Villages"),
+          ...villages.map(v => h("option",{key:v,value:v},v))
+        )
+      ),
+    )
+  );
+}
+
+// ── Property Table ─────────────────────────────────────────
+function PropertyTable({properties, page, setPage, sortKey, sortDir, onSort, onSelect, starred, onToggleStar}) {
+  const PER_PAGE = 50;
+  const totalPages = Math.ceil(properties.length / PER_PAGE);
+  const start = page * PER_PAGE;
+  const visible = properties.slice(start, start + PER_PAGE);
+
+  const th = (label, key, extra) => h("th",{
+    onClick:()=>onSort(key),
+    className:"cursor-pointer select-none px-2 py-2 text-left text-[10px] uppercase tracking-wider font-semibold text-slate-400 hover:text-navy whitespace-nowrap "+(extra||""),
+  }, label, sortKey===key ? h("span",{className:"ml-0.5"},sortDir==="asc"?"\u25B2":"\u25BC") : null);
+
+  const stratBadge = s => {
+    const c = STRAT_COLORS[s] || STRAT_COLORS.Flip;
+    return h("span",{className:"px-1.5 py-0.5 rounded text-[10px] font-bold "+c.bg+" "+c.text},s);
   };
-  const toggleStar = (id) => setStarred((s) => {
-    const n = new Set(s);
-    if (n.has(id)) n.delete(id);
-    else n.add(id);
-    return n;
+
+  return h("div",{className:"bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden"},
+    h("div",{className:"overflow-x-auto scrollbar-thin"},
+      h("table",{className:"data-table w-full text-sm"},
+        h("thead",null,
+          h("tr",{className:"bg-slate-50 border-b border-slate-200"},
+            h("th",{className:"px-2 py-2 w-8"}),
+            th("Address","addr","addr-cell"),
+            th("Village","village"),
+            th("Type","type"),
+            th("Value","val"),
+            th("Yrs","tenure"),
+            th("Grd","grade"),
+            th("Strategy","strategy"),
+            th("Score","invScore"),
+            th("ROI%","flipROI"),
+            th("Profit","flipProfit"),
+          )
+        ),
+        h("tbody",null,
+          ...visible.map((p,i) => {
+            const isStarred = starred.has(p.id);
+            return h("tr",{key:p.id,
+              onClick:()=>onSelect(p),
+              className:"border-b border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors "+(isStarred?"border-l-4 border-l-gold":""),
+            },
+              h("td",{className:"px-2 py-1.5 text-center",onClick:e=>{e.stopPropagation();onToggleStar(p.id)}},
+                h("span",{className:"cursor-pointer "+(isStarred?"text-gold":"text-slate-300 hover:text-gold"),style:{fontSize:"16px"}},"\u2605")),
+              h("td",{className:"addr-cell px-2 py-1.5 font-medium text-navy",title:p.addr},p.addr),
+              h("td",{className:"px-2 py-1.5 text-slate-500 text-[11px]"},p.village),
+              h("td",{className:"px-2 py-1.5 text-slate-500 text-[11px]"},p.type),
+              h("td",{className:"px-2 py-1.5 font-medium"},fmtK(p.val)),
+              h("td",{className:"px-2 py-1.5 text-slate-600"},Math.round(p.tenure)),
+              h("td",{className:"px-2 py-1.5"},h("span",{className:"inline-block px-1.5 py-0.5 rounded text-[10px] font-bold "+GRADE_COLORS[p.grade]},p.grade)),
+              h("td",{className:"px-2 py-1.5"},stratBadge(p.strategy)),
+              h("td",{className:"px-2 py-1.5"},h("span",{className:"inline-block px-2 py-0.5 rounded-full text-[11px] font-bold "+scoreColor(p.invScore)},p.invScore)),
+              h("td",{className:"px-2 py-1.5 font-medium "+(p.flipROI>0?"text-emerald-600":"text-red-500")},p.flipROI.toFixed(1)+"%"),
+              h("td",{className:"px-2 py-1.5 font-medium "+(p.flipProfit>0?"text-emerald-600":"text-red-500")},fmtK(p.flipProfit)),
+            );
+          })
+        ),
+      )
+    ),
+    // Pagination
+    totalPages > 1 && h("div",{className:"flex items-center justify-between px-4 py-3 border-t border-slate-100"},
+      h("button",{onClick:()=>setPage(Math.max(0,page-1)),disabled:page===0,
+        className:"px-3 py-1.5 rounded-lg text-sm font-medium "+(page===0?"text-slate-300 cursor-not-allowed":"text-navy hover:bg-slate-100")
+      },"Prev"),
+      h("div",{className:"flex gap-1"},
+        ...(() => {
+          const btns = [];
+          const show = new Set([0, totalPages-1, page-1, page, page+1].filter(p=>p>=0&&p<totalPages));
+          let last = -1;
+          for (const p of [...show].sort((a,b)=>a-b)) {
+            if (last >= 0 && p - last > 1) btns.push(h("span",{key:"e"+p,className:"px-1 text-slate-400"},"\u2026"));
+            btns.push(h("button",{key:p,onClick:()=>setPage(p),
+              className:"w-8 h-8 rounded-lg text-xs font-medium "+(p===page?"bg-navy text-white":"text-slate-500 hover:bg-slate-100")
+            },p+1));
+            last = p;
+          }
+          return btns;
+        })()
+      ),
+      h("button",{onClick:()=>setPage(Math.min(totalPages-1,page+1)),disabled:page>=totalPages-1,
+        className:"px-3 py-1.5 rounded-lg text-sm font-medium "+(page>=totalPages-1?"text-slate-300 cursor-not-allowed":"text-navy hover:bg-slate-100")
+      },"Next"),
+    ),
+  );
+}
+
+// ── Property Detail Modal ──────────────────────────────────
+function DetailModal({prop, onClose, starred, onToggleStar}) {
+  const p = prop;
+  const [inputs, setInputs] = useState({
+    purchase: p.purchase,
+    reno: p.reno,
+    arv: p.arv,
+    rent: p.rent,
+    rate: MORTGAGE_RATE * 100,
+    down: 25,
+    hold: 6,
   });
-  const starredProps = useMemo(() => allData.filter((p) => starred.has(p.id)), [allData, starred]);
-  const buildListText = (props) => {
-    let txt = `Newton MA \u2014 Property Shortlist (${props.length} properties)
-`;
-    txt += `Sent from Newton Investment Analyzer on ${(/* @__PURE__ */ new Date()).toLocaleDateString()}
+  const set = (k, v) => setInputs({...inputs, [k]: parseFloat(v) || 0});
 
-`;
-    props.forEach((p, i) => {
-      txt += `${i + 1}. ${p.address}, ${p.village} MA ${p.zip}
-`;
-      txt += `   Owner: ${p.owner} | Type: ${p.homeType} | Strategy: ${p.strategy}
-`;
-      txt += `   Assessed: ${fmt(p.assessedValue)} | ${fmt(p.sqft, "number")} sqft | $/sqft: ${fmt(p.pricePerSqft)}
-`;
-      txt += `   Score: ${p.investmentScore}/12 | Grade: ${p.leadGrade} | Tenure: ${p.tenure} yrs
-`;
-      txt += `   Est ARV: ${fmt(p.estARV)} | Reno: ${fmt(p.estRenoBudget)} | Profit: ${fmt(p.estProfit)} | ROI: ${fmt(p.estROI, "percent")}
-`;
-      if (p.homeType === "MultiSmall" || p.homeType === "AptSmall") {
-        txt += `   Rent: ${fmt(p.estMonthlyRent)}/mo | Yield: ${fmt(p.estGrossYield, "percent")} | Cashflow: ${fmt(p.estMonthlyCashflow)}/mo
-`;
-      }
-      txt += `   Segment: ${p.segment}
+  // Recalculate everything from inputs
+  const calc = useMemo(() => {
+    const purchase = inputs.purchase;
+    const reno = inputs.reno;
+    const arv = inputs.arv;
+    const rent = inputs.rent;
+    const rate = inputs.rate / 100;
+    const downPct = inputs.down / 100;
+    const holdMo = inputs.hold;
 
-`;
-    });
-    return txt;
+    const loan = purchase * (1 - downPct);
+    const mp = monthlyPayment(loan, rate, 30);
+    const closing = purchase * 0.03;
+    const selling = arv * 0.05;
+    const holdCost = mp * holdMo;
+    const totalCost = purchase + reno + closing + selling + holdCost;
+    const flipProfit = arv - totalCost;
+    const cashIn = purchase * downPct + closing + reno;
+    const flipROI = cashIn > 0 ? flipProfit / cashIn * 100 : 0;
+
+    // BRRRR
+    const refiVal = arv * 0.75;
+    const brrrrCashLeft = Math.max(0, cashIn - refiVal);
+    const refiPmt = monthlyPayment(refiVal, rate, 30);
+    const annTax = purchase * 0.0098;
+    const annMaint = purchase * 0.01;
+    const annVacancy = rent * 12 * 0.05;
+    const brrrrCF = rent - refiPmt - annTax/12 - INSURANCE_YR/12 - annMaint/12 - annVacancy/12;
+
+    // Hold
+    const annRent = rent * 12;
+    const mortgageAnn = mp * 12;
+    const monthCF = rent - mp - annTax/12 - INSURANCE_YR/12 - annMaint/12 - annVacancy/12;
+    const noi = annRent - annTax - INSURANCE_YR - annMaint - annVacancy;
+    const grossYield = purchase > 0 ? annRent / purchase * 100 : 0;
+    const capRate = purchase > 0 ? noi / purchase * 100 : 0;
+
+    return {loan,mp,closing,selling,holdCost,totalCost,flipProfit,cashIn,flipROI,
+      refiVal,brrrrCashLeft,refiPmt,brrrrCF,
+      rent:inputs.rent,annRent,annTax,annMaint,annVacancy,mortgageMo:mp,monthCF,noi,grossYield,capRate};
+  }, [inputs]);
+
+  const isStarred = starred.has(p.id);
+
+  const inputRow = (label, key, prefix, suffix) =>
+    h("div",{className:"flex items-center justify-between py-1.5 border-b border-slate-100"},
+      h("span",{className:"text-xs text-slate-500"},label),
+      h("div",{className:"flex items-center gap-1"},
+        prefix && h("span",{className:"text-xs text-slate-400"},prefix),
+        h("input",{type:"number",value:inputs[key],
+          onChange:e=>set(key, e.target.value),
+          className:"w-24 text-right text-sm font-medium border border-slate-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-gold"}),
+        suffix && h("span",{className:"text-xs text-slate-400"},suffix),
+      )
+    );
+
+  const lineItem = (label, val, bold, color) =>
+    h("div",{className:"flex items-center justify-between py-1 "+(bold?"font-bold":"")},
+      h("span",{className:"text-xs "+(bold?"text-navy":"text-slate-500")},label),
+      h("span",{className:"text-sm "+(color||"text-slate-700")+(bold?" text-base":"")},
+        typeof val === "number" ? fmt(val) : val),
+    );
+
+  return h("div",{className:"detail-modal",onClick:onClose},
+    h("div",{className:"bg-white rounded-2xl shadow-2xl max-w-5xl w-full mx-auto overflow-hidden slide-in",onClick:e=>e.stopPropagation()},
+      // Header
+      h("div",{className:"bg-navy-dark p-4 flex items-start justify-between"},
+        h("div",{className:"flex-1"},
+          h("h2",{className:"text-white text-lg font-bold"},p.addr),
+          h("p",{className:"text-slate-400 text-sm"},
+            [p.village, p.zip, p.type, p.owner].filter(Boolean).join(" \xB7 ")),
+        ),
+        h("div",{className:"flex items-center gap-2"},
+          h("button",{onClick:()=>onToggleStar(p.id),className:"text-2xl "+(isStarred?"text-gold":"text-slate-500 hover:text-gold")},"\u2605"),
+          h("button",{onClick:onClose,className:"w-8 h-8 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 text-lg font-bold"},"\u2715"),
+        )
+      ),
+      // Badges
+      h("div",{className:"flex flex-wrap gap-2 px-4 py-3 bg-slate-50 border-b border-slate-200"},
+        h("span",{className:"px-3 py-1 rounded-full text-xs font-bold "+(STRAT_COLORS[p.strategy]?STRAT_COLORS[p.strategy].bg+" "+STRAT_COLORS[p.strategy].text:"bg-slate-100 text-slate-600")},p.strategy),
+        h("span",{className:"px-3 py-1 rounded-full text-xs font-bold "+scoreColor(p.invScore)},p.invScore+"/12 \xB7 "+scoreTier(p.invScore)),
+        h("span",{className:"px-3 py-1 rounded-full text-xs font-bold "+GRADE_COLORS[p.grade]},"Grade "+p.grade),
+        p.yrBuilt && h("span",{className:"px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600"},"Built "+p.yrBuilt),
+      ),
+      // 3-column grid
+      h("div",{className:"grid grid-cols-1 lg:grid-cols-3 gap-0 lg:gap-4 p-4"},
+        // Column 1: Adjustable Inputs
+        h("div",null,
+          h("div",{className:"bg-gold/10 border border-gold/30 rounded-t-lg px-3 py-2"},
+            h("h3",{className:"text-sm font-bold text-gold"},"Adjustable Inputs")),
+          h("div",{className:"border border-t-0 border-slate-200 rounded-b-lg p-3 mb-4"},
+            inputRow("Purchase","purchase","$"),
+            inputRow("Reno Budget","reno","$"),
+            inputRow("ARV","arv","$"),
+            inputRow("Rent/mo","rent","$"),
+            inputRow("Rate","rate","","%"),
+            inputRow("Down Pmt","down","","%"),
+            inputRow("Hold","hold","","mo"),
+          ),
+        ),
+        // Column 2: Flip + BRRRR
+        h("div",null,
+          h("div",{className:"bg-emerald-500/10 border border-emerald-500/30 rounded-t-lg px-3 py-2"},
+            h("h3",{className:"text-sm font-bold text-emerald-600"},"Flip Analysis")),
+          h("div",{className:"border border-t-0 border-slate-200 rounded-b-lg p-3 mb-3"},
+            lineItem("Purchase",inputs.purchase),
+            lineItem("+ Reno",inputs.reno),
+            lineItem("+ Hold Cost",calc.holdCost),
+            lineItem("+ Closing",calc.closing),
+            lineItem("+ Selling",calc.selling),
+            h("hr",{className:"my-2 border-slate-200"}),
+            lineItem("Profit",calc.flipProfit,true,calc.flipProfit>0?"text-emerald-600":"text-red-500"),
+            lineItem("ROI",calc.flipROI.toFixed(1)+"%",true,calc.flipROI>0?"text-emerald-600":"text-red-500"),
+          ),
+          h("div",{className:"bg-purple-500/10 border border-purple-500/30 rounded-t-lg px-3 py-2"},
+            h("h3",{className:"text-sm font-bold text-purple-600"},"BRRRR")),
+          h("div",{className:"border border-t-0 border-slate-200 rounded-b-lg p-3 mb-4"},
+            lineItem("Cash In",calc.cashIn),
+            lineItem("Refi (75% ARV)",calc.refiVal),
+            lineItem("Cash Left",calc.brrrrCashLeft,true),
+            lineItem("CF/mo",calc.brrrrCF,false,calc.brrrrCF>0?"text-emerald-600":"text-red-500"),
+          ),
+        ),
+        // Column 3: Hold / Rental
+        h("div",null,
+          h("div",{className:"bg-blue-500/10 border border-blue-500/30 rounded-t-lg px-3 py-2"},
+            h("h3",{className:"text-sm font-bold text-blue-600"},"Hold / Rental")),
+          h("div",{className:"border border-t-0 border-slate-200 rounded-b-lg p-3 mb-3"},
+            lineItem("Rent/mo",calc.rent),
+            lineItem("- Mortgage",calc.mortgageMo),
+            lineItem("- Tax/mo",calc.annTax/12),
+            lineItem("- Insurance",INSURANCE_YR/12),
+            lineItem("- Maintenance",calc.annMaint/12),
+            lineItem("- Vacancy",calc.annVacancy/12),
+            h("hr",{className:"my-2 border-slate-200"}),
+            lineItem("Cashflow/mo",calc.monthCF,true,calc.monthCF>0?"text-emerald-600":"text-red-500"),
+            lineItem("NOI/yr",calc.noi),
+            lineItem("Gross Yield",calc.grossYield.toFixed(2)+"%",false),
+            lineItem("Cap Rate",calc.capRate.toFixed(2)+"%",false),
+          ),
+        ),
+      ),
+      // Property data summary
+      h("div",{className:"bg-slate-50 border-t border-slate-200 px-4 py-3"},
+        h("div",{className:"text-[10px] uppercase text-slate-400 font-semibold mb-2"},"Property Data"),
+        h("div",{className:"flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-500"},
+          h("span",null,"Assessed: "+fmt(p.val)),
+          h("span",null,"SqFt: "+p.sqft.toLocaleString()),
+          h("span",null,"$/sqft: $"+p.psf),
+          h("span",null,"Tenure: "+p.tenure+" yrs"),
+          h("span",null,"Lead Score: "+p.leadScore),
+          h("span",null,"Segment: "+p.segment),
+          p.lotSize && h("span",null,"Lot: "+p.lotSize+" acres"),
+          p.zoning && h("span",null,"Zoning: "+p.zoning),
+          p.style && h("span",null,"Style: "+p.style),
+          p.rooms && h("span",null,"Rooms: "+p.rooms),
+          h("span",null,"Score: "+p.s1+"+"+p.s2+"+"+p.s3+"+"+p.s4+"="+p.invScore),
+        )
+      ),
+    )
+  );
+}
+
+// ── Shortlist Bar ──────────────────────────────────────────
+function ShortlistBar({starred, properties, onToggleStar, onCompare}) {
+  const items = useMemo(() => properties.filter(p => starred.has(p.id)), [starred, properties]);
+  if (items.length === 0) return null;
+
+  const sendEmail = () => {
+    const body = items.map(p =>
+      p.addr + " (" + p.village + ")\n" +
+      "  Value: " + fmt(p.val) + " | Score: " + p.invScore + "/12 | " + p.strategy + "\n" +
+      "  Flip ROI: " + p.flipROI.toFixed(1) + "% | Profit: " + fmt(p.flipProfit) + "\n" +
+      "  Cashflow: " + fmt(p.cashflow) + "/mo | Cap: " + p.capRate.toFixed(2) + "%\n"
+    ).join("\n");
+    window.open("mailto:zev.steinmetz@raveis.com?subject=Newton%20Investment%20Shortlist%20("+items.length+"%20properties)&body="+encodeURIComponent("My Newton Investment Shortlist\n\n"+body));
   };
-  const sendListToZev = () => {
-    if (starredProps.length === 0) return;
-    const subject = encodeURIComponent(`Newton Investment Shortlist \u2014 ${starredProps.length} Properties`);
-    const body = encodeURIComponent(buildListText(starredProps));
-    const mailtoUrl = `mailto:zev.steinmetz@raveis.com?subject=${subject}&body=${body}`;
-    if (mailtoUrl.length > 2e3) {
-      navigator.clipboard.writeText(buildListText(starredProps)).then(() => {
-        setSendStatus("copied");
-        setTimeout(() => setSendStatus(null), 4e3);
-      });
-      const shortBody = encodeURIComponent(`Newton Investment Shortlist \u2014 ${starredProps.length} properties
 
-Full list copied to clipboard. Please paste below.
-
-Properties: ${starredProps.map((p) => p.address).join(", ")}`);
-      window.open(`mailto:zev.steinmetz@raveis.com?subject=${subject}&body=${shortBody}`, "_self");
-    } else {
-      window.open(mailtoUrl, "_self");
-      setSendStatus("sent");
-      setTimeout(() => setSendStatus(null), 3e3);
-    }
-  };
   const downloadCSV = () => {
-    if (starredProps.length === 0) return;
-    const headers = ["Address", "Village", "ZIP", "Owner", "Type", "Assessed Value", "Sqft", "$/Sqft", "Tenure", "Lead Score", "Grade", "Strategy", "Inv Score", "Est ARV", "Reno Budget", "Est Profit", "ROI%", "Monthly Rent", "Gross Yield%", "Segment"];
-    const rows = starredProps.map((p) => [
-      p.address,
-      p.village,
-      p.zip,
-      p.owner,
-      p.homeType,
-      p.assessedValue,
-      p.sqft,
-      p.pricePerSqft,
-      p.tenure,
-      p.leadScore,
-      p.leadGrade,
-      p.strategy,
-      p.investmentScore,
-      p.estARV,
-      p.estRenoBudget,
-      p.estProfit,
-      p.estROI,
-      p.estMonthlyRent,
-      p.estGrossYield,
-      p.segment
-    ]);
-    let csv = headers.join(",") + "\n";
-    rows.forEach((r) => {
-      csv += r.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",") + "\n";
-    });
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
+    const headers = ["Address","Village","Type","Value","SqFt","$/sqft","Tenure","Grade","Strategy","Score","FlipROI","FlipProfit","Rent","Cashflow","CapRate"];
+    const rows = items.map(p => [p.addr,p.village,p.type,p.val,p.sqft,p.psf,p.tenure,p.grade,p.strategy,p.invScore,p.flipROI.toFixed(1),p.flipProfit,p.rent,p.cashflow,p.capRate.toFixed(2)]);
+    const csv = [headers,...rows].map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(",")).join("\n");
+    const blob = new Blob([csv],{type:"text/csv"});
     const a = document.createElement("a");
-    a.href = url;
-    a.download = `Newton_Shortlist_${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.csv`;
+    a.href = URL.createObjectURL(blob);
+    a.download = "newton_shortlist.csv";
     a.click();
-    URL.revokeObjectURL(url);
   };
-  const clearList = () => setStarred(/* @__PURE__ */ new Set());
-  const SortHeader = ({ k, label }) => /* @__PURE__ */ React.createElement("th", { onClick: () => handleSort(k), className: "px-1 py-1.5 lg:px-2 lg:py-2.5 text-left text-[10px] lg:text-xs font-semibold cursor-pointer hover:bg-navy-light select-none whitespace-nowrap" }, label, " ", sortKey === k ? sortDir === 1 ? "\u25B2" : "\u25BC" : "");
-  if (appPhase === "guide") {
-    return /* @__PURE__ */ React.createElement(IntroOverlay, { onClose: () => setAppPhase("rotate") });
-  }
-  if (appPhase === "rotate") {
-    return /* @__PURE__ */ React.createElement(RotatePrompt, { onContinue: () => setAppPhase("app") });
-  }
-  if (!allData) {
-    return /* @__PURE__ */ React.createElement("div", { className: "fixed inset-0 bg-navy flex flex-col items-center justify-center" }, /* @__PURE__ */ React.createElement(Logo, { size: 60, className: "mb-4 opacity-80" }), /* @__PURE__ */ React.createElement("div", { className: "text-gold font-bold text-sm mb-2" }, "Loading properties..."), /* @__PURE__ */ React.createElement("div", { style: { width: 100, height: 3, background: "#2C3E6B", borderRadius: 3, overflow: "hidden" } }, /* @__PURE__ */ React.createElement("div", { style: { width: "40%", height: "100%", background: "#D4A843", borderRadius: 3, animation: "loadbar 1.2s ease-in-out infinite" } })), /* @__PURE__ */ React.createElement("style", null, "@keyframes loadbar{0%{width:10%;margin-left:0}50%{width:50%;margin-left:25%}100%{width:10%;margin-left:90%}}"));
-  }
-  return /* @__PURE__ */ React.createElement("div", { className: "min-h-screen", style: { background: "#F8FAFC" } }, showIntro && /* @__PURE__ */ React.createElement(IntroOverlay, { onClose: () => setShowIntro(false) }), /* @__PURE__ */ React.createElement("header", { className: "bg-navy text-white py-3 md:py-5 px-4 md:px-6 shadow-lg app-header" }, /* @__PURE__ */ React.createElement("div", { className: "max-w-[1600px] mx-auto flex items-center justify-between gap-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-3 min-w-0" }, /* @__PURE__ */ React.createElement(Logo, { size: 36, className: "flex-shrink-0 hidden sm:block" }), /* @__PURE__ */ React.createElement("div", { className: "min-w-0" }, /* @__PURE__ */ React.createElement("h1", { className: "text-base md:text-2xl font-bold tracking-tight truncate" }, "Newton MA \u2014 Investment Analyzer"), /* @__PURE__ */ React.createElement("p", { className: "text-slate-400 text-[11px] md:text-xs mt-0.5" }, "Steinmetz Real Estate | William Raveis"))), /* @__PURE__ */ React.createElement("button", { onClick: () => setShowIntro(true), className: "px-3 py-2 rounded-lg text-xs md:text-sm font-medium bg-white/10 hover:bg-white/20 transition-colors no-print flex-shrink-0", title: "How to use this tool" }, "? Guide"))), /* @__PURE__ */ React.createElement("div", { className: "max-w-[1600px] mx-auto px-3 md:px-4 -mt-3 md:-mt-4" }, /* @__PURE__ */ React.createElement("div", { className: "grid grid-cols-3 md:grid-cols-6 gap-2 md:gap-3 dash-cards" }, /* @__PURE__ */ React.createElement(Card, { label: "Properties Analyzed", value: fmt(stats.total, "number"), icon: "" }), /* @__PURE__ */ React.createElement(Card, { label: "Median Price", value: fmt(market.medianPrice), sub: "Newton overall", icon: "" }), /* @__PURE__ */ React.createElement(Card, { label: "Median $/sqft", value: fmt(market.avgPSF_overall), sub: "All conditions", icon: "" }), /* @__PURE__ */ React.createElement(Card, { label: "Mortgage Rate", value: "6.00%", sub: "30yr fixed", icon: "" }), /* @__PURE__ */ React.createElement(Card, { label: "Tax Rate", value: "$9.80/1K", sub: "FY2025", icon: "" }), /* @__PURE__ */ React.createElement(Card, { label: "Opportunities", value: fmt(stats.opportunities, "number"), sub: `${stats.flips} flip \xB7 ${stats.holds} hold \xB7 ${stats.brrrrs} BRRRR`, icon: "" }))), starred.size > 0 && /* @__PURE__ */ React.createElement("div", { className: "max-w-[1600px] mx-auto px-3 md:px-4 mt-4 no-print shortlist-bar" }, /* @__PURE__ */ React.createElement("div", { className: "bg-gold/10 border border-gold/30 rounded-xl px-3 md:px-4 py-3" }, /* @__PURE__ */ React.createElement("div", { className: "flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-2" }, /* @__PURE__ */ React.createElement("span", { className: "text-sm font-bold text-gold-dark" }, "Your Shortlist (", starred.size, " properties)"), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-wrap" }, /* @__PURE__ */ React.createElement("button", { onClick: sendListToZev, className: "px-3 md:px-4 py-2 bg-navy text-white rounded-lg text-sm font-bold hover:bg-navy-light transition-colors flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement("svg", { xmlns: "http://www.w3.org/2000/svg", className: "h-4 w-4", fill: "none", viewBox: "0 0 24 24", stroke: "currentColor" }, /* @__PURE__ */ React.createElement("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" })), /* @__PURE__ */ React.createElement("span", { className: "hidden sm:inline" }, "Send List to Zev"), /* @__PURE__ */ React.createElement("span", { className: "sm:hidden" }, "Send")), /* @__PURE__ */ React.createElement("button", { onClick: downloadCSV, className: "px-3 md:px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors flex items-center gap-1.5" }, /* @__PURE__ */ React.createElement("svg", { xmlns: "http://www.w3.org/2000/svg", className: "h-4 w-4", fill: "none", viewBox: "0 0 24 24", stroke: "currentColor" }, /* @__PURE__ */ React.createElement("path", { strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: 2, d: "M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" })), /* @__PURE__ */ React.createElement("span", { className: "hidden sm:inline" }, "Download CSV"), /* @__PURE__ */ React.createElement("span", { className: "sm:hidden" }, "CSV")), starred.size <= 4 && /* @__PURE__ */ React.createElement("button", { onClick: () => setShowCompare(!showCompare), className: "px-3 md:px-4 py-2 bg-gold text-white rounded-lg text-sm font-bold hover:bg-gold-dark transition-colors" }, showCompare ? "Hide" : "Compare"), /* @__PURE__ */ React.createElement("button", { onClick: clearList, className: "px-3 py-2 text-red-400 hover:text-red-600 text-sm font-medium", title: "Clear all" }, "Clear"))), sendStatus === "copied" && /* @__PURE__ */ React.createElement("div", { className: "mb-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700 font-medium" }, "List copied to clipboard \u2014 paste it into the email that just opened."), sendStatus === "sent" && /* @__PURE__ */ React.createElement("div", { className: "mb-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700 font-medium" }, "Opening email client with your shortlist..."), /* @__PURE__ */ React.createElement("div", { className: "flex items-center gap-2 flex-wrap" }, starredProps.map((p) => /* @__PURE__ */ React.createElement("span", { key: p.id, className: "px-2 py-1.5 bg-white rounded-lg text-xs font-medium text-navy shadow-sm flex items-center gap-1" }, /* @__PURE__ */ React.createElement("span", { className: `w-2 h-2 rounded-full flex-shrink-0 ${stratColor(p.strategy)}` }), /* @__PURE__ */ React.createElement("span", { className: "truncate max-w-[140px] sm:max-w-none" }, p.address), /* @__PURE__ */ React.createElement("span", { className: "hidden sm:inline text-slate-400" }, p.village), /* @__PURE__ */ React.createElement("span", { className: `px-1.5 py-0.5 rounded text-[10px] font-bold ${scoreColor(p.investmentScore)}` }, p.investmentScore), /* @__PURE__ */ React.createElement("button", { onClick: () => toggleStar(p.id), className: "ml-0.5 text-red-400 hover:text-red-600" }, "\xD7")))))), showCompare && /* @__PURE__ */ React.createElement("div", { className: "max-w-[1600px] mx-auto px-4 mt-4" }, /* @__PURE__ */ React.createElement(CompareView, { properties: starredProps, market, onClose: () => setShowCompare(false) })), /* @__PURE__ */ React.createElement("div", { className: "max-w-[1600px] mx-auto px-2 lg:px-4 py-2 lg:py-4 main-content" }, /* @__PURE__ */ React.createElement(FilterBar, { filters, setFilters, villages, filtered: filtered.length }), /* @__PURE__ */ React.createElement("div", { className: "mt-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden" }, /* @__PURE__ */ React.createElement("div", { className: "overflow-hidden" }, /* @__PURE__ */ React.createElement("table", { className: "w-full data-table", style: { tableLayout: "auto" } }, /* @__PURE__ */ React.createElement("thead", { className: "bg-navy text-white sticky top-0 z-10" }, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { className: "px-1 py-1.5 w-6" }), /* @__PURE__ */ React.createElement(SortHeader, { k: "address", label: "Address" }), /* @__PURE__ */ React.createElement(SortHeader, { k: "village", label: "Village" }), /* @__PURE__ */ React.createElement(SortHeader, { k: "homeType", label: "Type" }), /* @__PURE__ */ React.createElement(SortHeader, { k: "assessedValue", label: "Value" }), /* @__PURE__ */ React.createElement(SortHeader, { k: "tenure", label: "Yrs" }), /* @__PURE__ */ React.createElement(SortHeader, { k: "leadGrade", label: "Grd" }), /* @__PURE__ */ React.createElement(SortHeader, { k: "strategy", label: "Strategy" }), /* @__PURE__ */ React.createElement(SortHeader, { k: "investmentScore", label: "Score" }), /* @__PURE__ */ React.createElement(SortHeader, { k: "estROI", label: "ROI%" }), /* @__PURE__ */ React.createElement(SortHeader, { k: "estProfit", label: "Profit" }))), /* @__PURE__ */ React.createElement("tbody", { className: "divide-y divide-slate-100" }, paged.map((p) => /* @__PURE__ */ React.createElement("tr", { key: p.id, onClick: () => setExpandedId(expandedId === p.id ? null : p.id), className: `cursor-pointer hover:bg-slate-50 transition-colors ${expandedId === p.id ? "bg-blue-50" : ""} ${starred.has(p.id) ? "border-l-4 border-l-gold" : ""}` }, /* @__PURE__ */ React.createElement("td", { className: "px-1 py-1 text-center" }, /* @__PURE__ */ React.createElement("button", { onClick: (e) => {
-    e.stopPropagation();
-    toggleStar(p.id);
-  }, className: `text-xs ${starred.has(p.id) ? "text-gold" : "text-slate-300 hover:text-slate-400"}` }, starred.has(p.id) ? "\u2605" : "\u2606")), /* @__PURE__ */ React.createElement("td", { className: "px-1 py-1 text-[11px] lg:text-[13px] font-medium text-navy addr-cell", title: p.address }, p.address), /* @__PURE__ */ React.createElement("td", { className: "px-1 py-1 text-[10px] lg:text-[11px] text-slate-600 whitespace-nowrap" }, p.village), /* @__PURE__ */ React.createElement("td", { className: "px-1 py-1 text-[10px] lg:text-[11px] text-slate-600" }, p.homeType), /* @__PURE__ */ React.createElement("td", { className: "px-1 py-1 text-[11px] lg:text-[13px] font-medium text-right whitespace-nowrap" }, fmt(p.assessedValue)), /* @__PURE__ */ React.createElement("td", { className: "px-1 py-1 text-[11px] lg:text-[13px] text-center" }, p.tenure), /* @__PURE__ */ React.createElement("td", { className: "px-1 py-1" }, /* @__PURE__ */ React.createElement("span", { className: `px-1 py-0.5 rounded text-[9px] lg:text-[10px] font-bold ${gradeColor(p.leadGrade)}` }, p.leadGrade)), /* @__PURE__ */ React.createElement("td", { className: "px-1 py-1" }, /* @__PURE__ */ React.createElement("span", { className: `px-1 py-0.5 rounded text-[9px] lg:text-[10px] font-bold text-white ${stratColor(p.strategy)}` }, p.strategy)), /* @__PURE__ */ React.createElement("td", { className: "px-1 py-1" }, /* @__PURE__ */ React.createElement("span", { className: `px-1 py-0.5 rounded text-[9px] lg:text-[10px] font-bold ${scoreColor(p.investmentScore)}` }, p.investmentScore)), /* @__PURE__ */ React.createElement("td", { className: "px-1 py-1 text-[11px] lg:text-[13px] text-right font-medium", style: { color: p.estROI > 20 ? "#059669" : p.estROI > 10 ? "#D97706" : "#64748B" } }, fmt(p.estROI, "percent")), /* @__PURE__ */ React.createElement("td", { className: "px-1 py-1 text-[11px] lg:text-[13px] text-right font-medium whitespace-nowrap" }, fmt(p.estProfit))))))), /* @__PURE__ */ React.createElement("div", { className: "flex items-center justify-between px-2 lg:px-4 py-1.5 lg:py-3 border-t border-slate-200 bg-slate-50" }, /* @__PURE__ */ React.createElement("div", { className: "text-[10px] lg:text-xs text-slate-500" }, page * PAGE_SIZE + 1, "\u2013", Math.min((page + 1) * PAGE_SIZE, filtered.length), " of ", fmt(filtered.length, "number")), /* @__PURE__ */ React.createElement("div", { className: "flex gap-1" }, /* @__PURE__ */ React.createElement("button", { disabled: page === 0, onClick: () => setPage((p) => p - 1), className: "px-2 lg:px-3 py-1 rounded text-xs lg:text-sm bg-white border border-slate-200 disabled:opacity-40 hover:bg-slate-50" }, "Prev"), Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-    let pg = i;
-    if (totalPages > 5) {
-      if (page < 3) pg = i;
-      else if (page > totalPages - 3) pg = totalPages - 5 + i;
-      else pg = page - 2 + i;
-    }
-    return /* @__PURE__ */ React.createElement("button", { key: pg, onClick: () => setPage(pg), className: `px-2 lg:px-3 py-1 rounded text-xs lg:text-sm ${page === pg ? "bg-navy text-white" : "bg-white border border-slate-200 hover:bg-slate-50"}` }, pg + 1);
-  }), /* @__PURE__ */ React.createElement("button", { disabled: page >= totalPages - 1, onClick: () => setPage((p) => p + 1), className: "px-2 lg:px-3 py-1 rounded text-xs lg:text-sm bg-white border border-slate-200 disabled:opacity-40 hover:bg-slate-50" }, "Next"))))), expandedId && (() => {
-    const p = allData.find((x) => x.id === expandedId);
-    return p ? /* @__PURE__ */ React.createElement(PropertyDetail, { prop: p, market, onClose: () => setExpandedId(null), onToggleStar: toggleStar, isStarred: starred.has(p.id) }) : null;
-  })(), /* @__PURE__ */ React.createElement("footer", { className: "bg-navy text-slate-400 text-xs text-center py-3 mt-4 app-footer" }, "Newton MA Investment Analysis \xB7 Steinmetz Real Estate \xB7 William Raveis \xB7 Generated ", (/* @__PURE__ */ new Date()).toLocaleDateString()));
-};
-ReactDOM.createRoot(document.getElementById("root")).render(/* @__PURE__ */ React.createElement(App, null));
 
-// Generate favicon via canvas (deferred to not block page load)
-setTimeout(function(){
-  var s=32,c=document.createElement('canvas');c.width=s;c.height=s;var x=c.getContext('2d');
-  var r=5;x.beginPath();x.moveTo(r,0);x.lineTo(s-r,0);x.quadraticCurveTo(s,0,s,r);x.lineTo(s,s-r);x.quadraticCurveTo(s,s,s-r,s);x.lineTo(r,s);x.quadraticCurveTo(0,s,0,s-r);x.lineTo(0,r);x.quadraticCurveTo(0,0,r,0);x.closePath();
-  var g=x.createLinearGradient(0,0,s,s);g.addColorStop(0,'#1B2A4A');g.addColorStop(1,'#0F1A2E');x.fillStyle=g;x.fill();
-  x.strokeStyle='#D4A843';x.lineWidth=2;x.lineCap='round';x.lineJoin='round';
-  x.beginPath();x.moveTo(6,14);x.lineTo(16,6);x.lineTo(26,14);x.stroke();
-  x.lineWidth=1.2;x.globalAlpha=0.7;x.beginPath();x.moveTo(8,14);x.lineTo(8,24);x.lineTo(24,24);x.lineTo(24,14);x.stroke();
-  x.globalAlpha=1;x.lineWidth=1;x.beginPath();x.rect(14,19,4,5);x.stroke();
-  x.beginPath();x.rect(9.5,16,4,3);x.stroke();x.beginPath();x.rect(18.5,16,4,3);x.stroke();
-  x.globalAlpha=0.8;x.lineWidth=1.2;x.beginPath();x.arc(24,10,5,0,Math.PI*2);x.stroke();
-  x.beginPath();x.arc(24,10,1.5,0,Math.PI*2);x.fillStyle='#D4A843';x.fill();
-  var lnk=document.getElementById('dynamic-favicon');if(lnk)lnk.href=c.toDataURL('image/png');
-},100);
+  return h("div",{className:"shortlist-bar bg-gold/10 border border-gold/30 rounded-xl p-3 mb-4 fade-in"},
+    h("div",{className:"flex flex-wrap items-center gap-2 mb-2"},
+      h("span",{className:"text-sm font-bold text-gold"},"Your Shortlist ("+items.length+" properties)"),
+      h("div",{className:"flex-1"}),
+      h("button",{onClick:sendEmail,className:"bg-navy text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-navy-light transition-colors"},"Send List to Zev"),
+      h("button",{onClick:downloadCSV,className:"bg-white text-navy border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50 transition-colors"},"Download CSV"),
+      items.length >= 2 && items.length <= 4 && h("button",{onClick:()=>onCompare(items),className:"bg-gold text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-gold-light transition-colors"},"Compare"),
+      h("button",{onClick:()=>items.forEach(i=>onToggleStar(i.id)),className:"text-red-500 text-xs font-medium hover:underline"},"Clear"),
+    ),
+    h("div",{className:"flex flex-wrap gap-2"},
+      ...items.map(p => h("div",{key:p.id,className:"flex items-center gap-1.5 bg-white rounded-lg px-2 py-1 border border-slate-200 text-xs"},
+        h("span",{className:"font-medium text-navy"},p.addr.length > 20 ? p.addr.slice(0,20)+"\u2026" : p.addr),
+        h("span",{className:"text-slate-400"},p.village),
+        h("span",{className:"px-1 py-0.5 rounded text-[9px] font-bold "+scoreColor(p.invScore)},p.invScore),
+        h("button",{onClick:()=>onToggleStar(p.id),className:"text-slate-300 hover:text-red-400 font-bold"},"\u2715"),
+      ))
+    ),
+  );
+}
+
+// ── Compare Modal ──────────────────────────────────────────
+function CompareModal({items, onClose}) {
+  if (!items || items.length === 0) return null;
+  const metrics = [
+    ["Value", p => fmt(p.val)],
+    ["SqFt", p => p.sqft.toLocaleString()],
+    ["$/sqft", p => "$"+p.psf],
+    ["Strategy", p => p.strategy],
+    ["Score", p => p.invScore+"/12"],
+    ["Grade", p => p.grade],
+    ["Tenure", p => Math.round(p.tenure)+" yrs"],
+    ["Flip Profit", p => fmt(p.flipProfit)],
+    ["Flip ROI", p => p.flipROI.toFixed(1)+"%"],
+    ["Rent/mo", p => fmt(p.rent)],
+    ["Cashflow/mo", p => fmt(p.cashflow)],
+    ["Cap Rate", p => p.capRate.toFixed(2)+"%"],
+    ["ARV", p => fmt(p.arv)],
+    ["Reno Cost", p => fmt(p.reno)],
+  ];
+
+  return h("div",{className:"detail-modal",onClick:onClose},
+    h("div",{className:"bg-white rounded-2xl shadow-2xl max-w-4xl w-full mx-auto overflow-hidden slide-in",onClick:e=>e.stopPropagation()},
+      h("div",{className:"bg-navy-dark p-4 flex items-center justify-between"},
+        h("h2",{className:"text-white font-bold"},"Compare Properties"),
+        h("button",{onClick:onClose,className:"w-8 h-8 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 text-lg font-bold"},"\u2715"),
+      ),
+      h("div",{className:"overflow-x-auto p-4"},
+        h("table",{className:"w-full text-sm"},
+          h("thead",null,
+            h("tr",{className:"border-b border-slate-200"},
+              h("th",{className:"text-left py-2 px-3 text-xs text-slate-400"},"Metric"),
+              ...items.map(p => h("th",{key:p.id,className:"text-left py-2 px-3 text-xs font-bold text-navy"},p.addr.length>25?p.addr.slice(0,25)+"\u2026":p.addr))
+            ),
+          ),
+          h("tbody",null,
+            ...metrics.map(([label, fn], i) =>
+              h("tr",{key:label,className:i%2?"bg-slate-50":""},
+                h("td",{className:"py-1.5 px-3 text-xs text-slate-500 font-medium"},label),
+                ...items.map(p => h("td",{key:p.id,className:"py-1.5 px-3 text-xs font-medium text-navy"},fn(p)))
+              )
+            )
+          ),
+        )
+      ),
+    )
+  );
+}
+
+// ── Main App ───────────────────────────────────────────────
+function App() {
+  const data = window.__PROPERTIES__ || [];
+  const stats = window.__STATS__ || {};
+
+  const [phase, setPhase] = useState("rotate");
+  const [selectedProp, setSelectedProp] = useState(null);
+  const [compareProp, setCompareProp] = useState(null);
+  const [starred, setStarred] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem("newton_starred")||"[]"); return new Set(s); }
+    catch { return new Set(); }
+  });
+  const [page, setPage] = useState(0);
+  const [sortKey, setSortKey] = useState("invScore");
+  const [sortDir, setSortDir] = useState("desc");
+  const defaultFilters = {search:"",strategies:[],grades:[],minScore:0,minTenure:0,minROI:0,minPrice:"",maxPrice:"",types:[],village:""};
+  const [filters, setFilters] = useState(defaultFilters);
+
+  // Persist stars
+  useEffect(() => {
+    localStorage.setItem("newton_starred", JSON.stringify([...starred]));
+  }, [starred]);
+
+  const toggleStar = useCallback(id => {
+    setStarred(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Filter + Sort
+  const filtered = useMemo(() => {
+    let arr = data;
+    const s = filters.search.toLowerCase();
+    if (s) arr = arr.filter(p => p.addr.toLowerCase().includes(s) || p.owner.toLowerCase().includes(s));
+    if (filters.strategies.length) arr = arr.filter(p => filters.strategies.includes(p.strategy));
+    if (filters.grades.length) arr = arr.filter(p => filters.grades.includes(p.grade));
+    if (filters.minScore > 0) arr = arr.filter(p => p.invScore >= filters.minScore);
+    if (filters.minTenure > 0) arr = arr.filter(p => p.tenure >= filters.minTenure);
+    if (filters.minROI > 0) arr = arr.filter(p => p.flipROI >= filters.minROI);
+    if (filters.minPrice) arr = arr.filter(p => p.val >= filters.minPrice);
+    if (filters.maxPrice) arr = arr.filter(p => p.val <= filters.maxPrice);
+    if (filters.types.length) arr = arr.filter(p => filters.types.includes(p.type));
+    if (filters.village) arr = arr.filter(p => p.village === filters.village);
+
+    arr = [...arr].sort((a,b) => {
+      let va = a[sortKey], vb = b[sortKey];
+      if (typeof va === "string") { va = va.toLowerCase(); vb = vb.toLowerCase(); }
+      if (va < vb) return sortDir === "asc" ? -1 : 1;
+      if (va > vb) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return arr;
+  }, [data, filters, sortKey, sortDir]);
+
+  // Reset page when filters change
+  useEffect(() => { setPage(0); }, [filters, sortKey, sortDir]);
+
+  const onSort = useCallback(key => {
+    if (key === sortKey) {
+      setSortDir(d => d === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  }, [sortKey]);
+
+  // Phase: Rotate
+  if (phase === "rotate") {
+    return h(RotatePrompt, {onContinue: () => setPhase("guide")});
+  }
+
+  // Phase: Guide
+  if (phase === "guide") {
+    return h(IntroGuide, {onClose: () => setPhase("app")});
+  }
+
+  // Phase: App
+  return h("div",{className:"min-h-screen",style:{background:"#f1f5f9"}},
+    // Header
+    h("div",{className:"app-header bg-navy-dark px-4 py-3 flex items-center justify-between sticky top-0 z-40"},
+      h("div",null,
+        h("h1",{className:"text-white font-bold text-lg"},"Newton MA \u2014 Investment Analyzer"),
+        h("p",{className:"text-slate-400 text-xs"},"Steinmetz Real Estate | William Raveis"),
+      ),
+      h("button",{onClick:()=>setPhase("guide"),className:"bg-white/10 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-white/20 transition-colors"},"? Guide"),
+    ),
+    // Main content
+    h("div",{className:"main-content max-w-7xl mx-auto px-3 py-4"},
+      h(DashboardCards, {stats, filteredCount: filtered.length}),
+      h(ShortlistBar, {starred, properties: data, onToggleStar: toggleStar, onCompare: items => setCompareProp(items)}),
+      h(FilterBar, {filters, setFilters, filtered: filtered.length, stats, onReset: ()=>setFilters(defaultFilters)}),
+      h(PropertyTable, {
+        properties: filtered,
+        page, setPage,
+        sortKey, sortDir, onSort,
+        onSelect: p => setSelectedProp(p),
+        starred, onToggleStar: toggleStar,
+      }),
+    ),
+    // Footer
+    h("div",{className:"app-footer bg-navy-dark text-slate-500 text-center text-xs py-3 mt-4"},
+      "Newton MA Investment Analysis \xB7 Steinmetz Real Estate \xB7 William Raveis \xB7 Generated "+new Date().toLocaleDateString()
+    ),
+    // Modals
+    selectedProp && h(DetailModal, {prop: selectedProp, onClose: ()=>setSelectedProp(null), starred, onToggleStar: toggleStar}),
+    compareProp && h(CompareModal, {items: compareProp, onClose: ()=>setCompareProp(null)}),
+  );
+}
+
+// ── Mount ──────────────────────────────────────────────────
+ReactDOM.createRoot(document.getElementById("root")).render(h(App));
