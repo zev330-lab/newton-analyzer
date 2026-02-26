@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head><title>Script Load Test</title></head>
+<body style="font-family:system-ui;padding:20px">
+<h2>Script Loading Test</h2>
+<div id="log" style="background:#f0f0f0;padding:12px;border-radius:8px;font-size:14px"></div>
+<div id="root"></div>
+
+<script>
+function log(msg) {
+  document.getElementById('log').innerHTML += msg + '<br>';
+  console.log(msg);
+}
+log('1. Inline script running...');
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"
+  onload="log('2. React loaded OK')" onerror="log('2. React FAILED')"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"
+  onload="log('3. ReactDOM loaded OK')" onerror="log('3. ReactDOM FAILED')"></script>
+
+<script src="https://cdn.tailwindcss.com"
+  onload="log('4. Tailwind loaded OK')" onerror="log('4. Tailwind FAILED')"></script>
+
+<script>
+log('5. Checking globals...');
+log('   React: ' + (typeof React));
+log('   ReactDOM: ' + (typeof ReactDOM));
+log('   tailwind: ' + (typeof tailwind));
+
+try {
+  tailwind.config = { theme: { extend: { colors: { navy: '#1B2A4A' } } } };
+  log('6. tailwind.config set OK');
+} catch(e) {
+  log('6. tailwind.config FAILED: ' + e.message);
+}
+
+try {
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    React.createElement('h1', {className:'text-2xl font-bold text-navy p-4'}, 'React works!')
+  );
+  log('7. React rendered OK');
+} catch(e) {
+  log('7. React render FAILED: ' + e.message);
+}
+</script>
+
+<script src="app.js"
+  onload="log('8. app.js loaded OK')" onerror="log('8. app.js FAILED')"></script>
+</body>
+</html>
