@@ -135,6 +135,14 @@ body { background: #0F1A2E; margin: 0; }
 </div>
 </div>
 <div id="root"></div>
+<script>
+window.onerror=function(msg,url,line){
+  var d=document.getElementById('splash');
+  if(d){var p=document.createElement('p');
+  p.style.cssText='color:red;font-size:11px;margin-top:8px;word-break:break-all';
+  p.textContent='ERR: '+msg+' (line '+line+' in '+(url.split('/').pop())+')';
+  d.querySelector('div').appendChild(p)}};
+</script>
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
