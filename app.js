@@ -1,7 +1,7 @@
 /* Newton MA Investment Analyzer - app.js */
 /* React.createElement-based, no JSX, no build step */
 
-const { useState, useMemo, useCallback, useEffect, useRef } = React;
+const { useState, useMemo, useCallback, useEffect } = React;
 const h = React.createElement;
 
 // ── Utilities ──────────────────────────────────────────────
