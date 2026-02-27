@@ -46,8 +46,8 @@ function monthlyPayment(principal, rate, years) {
 
 // ── SVG Icons ──────────────────────────────────────────────
 const LogoSVG = () => h("svg",{viewBox:"0 0 80 80",width:80,height:80,className:"mx-auto"},
-  h("rect",{x:10,y:35,width:60,height:40,rx:4,fill:"#1B2A4A",stroke:"#D4A843",strokeWidth:2}),
-  h("polygon",{points:"40,8 5,38 75,38",fill:"#1B2A4A",stroke:"#D4A843",strokeWidth:2}),
+  h("rect",{x:10,y:35,width:60,height:40,rx:4,fill:"#2C3E6B",stroke:"#D4A843",strokeWidth:2}),
+  h("polygon",{points:"40,8 5,38 75,38",fill:"#2C3E6B",stroke:"#D4A843",strokeWidth:2}),
   h("rect",{x:30,y:50,width:20,height:25,rx:2,fill:"#D4A843",opacity:.8}),
   h("circle",{cx:58,cy:22,r:14,fill:"none",stroke:"#D4A843",strokeWidth:3}),
   h("line",{x1:68,y1:32,x2:78,y2:42,stroke:"#D4A843",strokeWidth:3,strokeLinecap:"round"}),
@@ -89,7 +89,7 @@ function RotatePrompt({onContinue}) {
   return h("div",{className:"fixed inset-0 flex flex-col items-center justify-center p-8",style:{background:"#0F1A2E",zIndex:100}},
     h(LogoSVG),
     h("h1",{className:"text-white text-2xl font-bold mt-6 mb-2 text-center"},"Newton MA"),
-    h("p",{className:"text-gold text-sm font-medium mb-8"},"Investment Analyzer"),
+    h("p",{style:{color:"#D4A843"},className:"text-sm font-medium mb-8"},"Investment Analyzer"),
     h("div",{className:"mb-4"},h(PhoneRotateIcon)),
     h("p",{className:"text-white text-lg font-semibold mb-2"},"Rotate to Landscape"),
     h("p",{className:"text-slate-400 text-sm mb-8 text-center"},"For the best experience on mobile"),
