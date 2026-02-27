@@ -408,7 +408,18 @@ function PropertyTable({properties, page, setPage, sortKey, sortDir, onSort, onS
 // ── Property Detail Modal ──────────────────────────────────
 function DetailModal({prop, onClose, starred, onToggleStar}) {
   const p = prop;
-  const [inputs, setInputs] = useState({
+  const purchaseRef = useRef(null);
+  const renoRef = useRef(null);
+  const arvRef = useRef(null);
+  const rentRef = useRef(null);
+  const rateRef = useRef(null);
+  const downRef = useRef(null);
+  const holdRef = useRef(null);
+  const buyCommRef = useRef(null);
+  const sellCommRef = useRef(null);
+  const [btnText, setBtnText] = useState("Recalculate Analysis");
+
+  const defaults = {
     purchase: p.purchase,
     reno: p.reno,
     arv: p.arv,
@@ -416,30 +427,32 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
     rate: MORTGAGE_RATE * 100,
     down: 25,
     hold: 6,
-  });
-  const set = (k, v) => setInputs({...inputs, [k]: parseFloat(v) || 0});
+    buyComm: 4,
+    sellComm: 5,
+  };
 
-  // Recalculate everything from inputs
-  const calc = useMemo(() => {
-    const purchase = inputs.purchase;
-    const reno = inputs.reno;
-    const arv = inputs.arv;
-    const rent = inputs.rent;
-    const rate = inputs.rate / 100;
-    const downPct = inputs.down / 100;
-    const holdMo = inputs.hold;
+  const runCalc = (vals) => {
+    const purchase = vals.purchase;
+    const reno = vals.reno;
+    const arv = vals.arv;
+    const rent = vals.rent;
+    const rate = vals.rate / 100;
+    const downPct = vals.down / 100;
+    const holdMo = vals.hold;
+    const buyCommPct = vals.buyComm;
+    const sellCommPct = vals.sellComm;
 
     const loan = purchase * (1 - downPct);
     const mp = monthlyPayment(loan, rate, 30);
     const closing = purchase * 0.03;
-    const selling = arv * 0.05;
-    const holdCost = mp * holdMo;
-    const totalCost = purchase + reno + closing + selling + holdCost;
+    const buyerComm = purchase * (buyCommPct / 100);
+    const selling = arv * (sellCommPct / 100);
+    const holdCost = purchase * (rate / 12) * holdMo;
+    const totalCost = purchase + reno + holdCost + closing + selling + buyerComm;
     const flipProfit = arv - totalCost;
-    const cashIn = purchase * downPct + closing + reno;
-    const flipROI = cashIn > 0 ? flipProfit / cashIn * 100 : 0;
+    const flipROI = (purchase + reno) > 0 ? flipProfit / (purchase + reno) * 100 : 0;
 
-    // BRRRR
+    const cashIn = purchase * downPct + closing + reno + buyerComm;
     const refiVal = arv * 0.75;
     const brrrrCashLeft = Math.max(0, cashIn - refiVal);
     const refiPmt = monthlyPayment(refiVal, rate, 30);
@@ -448,28 +461,54 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
     const annVacancy = rent * 12 * 0.05;
     const brrrrCF = rent - refiPmt - annTax/12 - INSURANCE_YR/12 - annMaint/12 - annVacancy/12;
 
-    // Hold
     const annRent = rent * 12;
-    const mortgageAnn = mp * 12;
     const monthCF = rent - mp - annTax/12 - INSURANCE_YR/12 - annMaint/12 - annVacancy/12;
     const noi = annRent - annTax - INSURANCE_YR - annMaint - annVacancy;
     const grossYield = purchase > 0 ? annRent / purchase * 100 : 0;
     const capRate = purchase > 0 ? noi / purchase * 100 : 0;
 
-    return {loan,mp,closing,selling,holdCost,totalCost,flipProfit,cashIn,flipROI,
+    return {purchase,reno,arv,rent,loan,mp,closing,selling,buyerComm,holdCost,totalCost,flipProfit,cashIn,flipROI,
       refiVal,brrrrCashLeft,refiPmt,brrrrCF,
-      rent:inputs.rent,annRent,annTax,annMaint,annVacancy,mortgageMo:mp,monthCF,noi,grossYield,capRate};
-  }, [inputs]);
+      annRent,annTax,annMaint,annVacancy,mortgageMo:mp,monthCF,noi,grossYield,capRate};
+  };
+
+  const [calc, setCalc] = useState(() => runCalc(defaults));
+
+  const parseVal = (ref) => {
+    const raw = ref.current ? ref.current.value : "0";
+    return parseFloat(raw.replace(/[$,%]/g, "").replace(/,/g, "")) || 0;
+  };
+
+  const handleRecalc = () => {
+    setBtnText("Calculating...");
+    const vals = {
+      purchase: parseVal(purchaseRef),
+      reno: parseVal(renoRef),
+      arv: parseVal(arvRef),
+      rent: parseVal(rentRef),
+      rate: parseVal(rateRef),
+      down: parseVal(downRef),
+      hold: parseVal(holdRef),
+      buyComm: parseVal(buyCommRef),
+      sellComm: parseVal(sellCommRef),
+    };
+    const result = runCalc(vals);
+    setCalc(result);
+    setTimeout(() => {
+      setBtnText("Updated \u2713");
+      setTimeout(() => setBtnText("Recalculate Analysis"), 1500);
+    }, 100);
+  };
 
   const isStarred = starred.has(p.id);
+  const fmtDef = (n) => Math.round(n).toLocaleString();
 
-  const inputRow = (label, key, prefix, suffix) =>
+  const inputRow = (label, ref, defaultVal, prefix, suffix) =>
     h("div",{className:"flex items-center justify-between py-1.5 border-b border-slate-100"},
       h("span",{className:"text-xs text-slate-500"},label),
       h("div",{className:"flex items-center gap-1"},
         prefix && h("span",{className:"text-xs text-slate-400"},prefix),
-        h("input",{type:"number",value:inputs[key],
-          onChange:e=>set(key, e.target.value),
+        h("input",{type:"text",inputMode:"decimal",defaultValue:defaultVal,ref:ref,
           className:"w-24 text-right text-sm font-medium border border-slate-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-gold"}),
         suffix && h("span",{className:"text-xs text-slate-400"},suffix),
       )
@@ -484,7 +523,6 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
 
   return h("div",{className:"detail-modal",onClick:onClose},
     h("div",{className:"bg-white rounded-2xl shadow-2xl max-w-5xl w-full mx-auto overflow-hidden slide-in",onClick:e=>e.stopPropagation()},
-      // Header
       h("div",{className:"bg-navy-dark p-4 flex items-start justify-between"},
         h("div",{className:"flex-1"},
           h("h2",{className:"text-white text-lg font-bold"},p.addr),
@@ -496,38 +534,41 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
           h("button",{onClick:onClose,className:"w-8 h-8 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20 text-lg font-bold"},"\u2715"),
         )
       ),
-      // Badges
       h("div",{className:"flex flex-wrap gap-2 px-4 py-3 bg-slate-50 border-b border-slate-200"},
         h("span",{className:"px-3 py-1 rounded-full text-xs font-bold "+(STRAT_COLORS[p.strategy]?STRAT_COLORS[p.strategy].bg+" "+STRAT_COLORS[p.strategy].text:"bg-slate-100 text-slate-600")},p.strategy),
         h("span",{className:"px-3 py-1 rounded-full text-xs font-bold "+scoreColor(p.invScore)},p.invScore+"/12 \xB7 "+scoreTier(p.invScore)),
         h("span",{className:"px-3 py-1 rounded-full text-xs font-bold "+GRADE_COLORS[p.grade]},"Grade "+p.grade),
         p.yrBuilt && h("span",{className:"px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600"},"Built "+p.yrBuilt),
       ),
-      // 3-column grid
       h("div",{className:"grid grid-cols-1 lg:grid-cols-3 gap-0 lg:gap-4 p-4"},
-        // Column 1: Adjustable Inputs
         h("div",null,
           h("div",{className:"bg-gold/10 border border-gold/30 rounded-t-lg px-3 py-2"},
             h("h3",{className:"text-sm font-bold text-gold"},"Adjustable Inputs")),
           h("div",{className:"border border-t-0 border-slate-200 rounded-b-lg p-3 mb-4"},
-            inputRow("Purchase","purchase","$"),
-            inputRow("Reno Budget","reno","$"),
-            inputRow("ARV","arv","$"),
-            inputRow("Rent/mo","rent","$"),
-            inputRow("Rate","rate","","%"),
-            inputRow("Down Pmt","down","","%"),
-            inputRow("Hold","hold","","mo"),
+            inputRow("Purchase",purchaseRef,fmtDef(defaults.purchase),"$"),
+            inputRow("Reno Budget",renoRef,fmtDef(defaults.reno),"$"),
+            inputRow("ARV",arvRef,fmtDef(defaults.arv),"$"),
+            inputRow("Rent/mo",rentRef,fmtDef(defaults.rent),"$"),
+            inputRow("Rate",rateRef,defaults.rate.toFixed(1),"","%"),
+            inputRow("Down Pmt",downRef,String(defaults.down),"","%"),
+            inputRow("Hold",holdRef,String(defaults.hold),"","mo"),
+            inputRow("Buyer Comm",buyCommRef,String(defaults.buyComm),"","%"),
+            inputRow("Sell Comm",sellCommRef,String(defaults.sellComm),"","%"),
+            h("button",{onClick:handleRecalc,
+              className:"w-full mt-3 py-2.5 rounded-lg font-bold text-white text-sm transition-all "+
+                (btnText==="Updated \u2713"?"bg-emerald-500":"bg-gold hover:bg-gold-light")},
+              btnText),
           ),
         ),
-        // Column 2: Flip + BRRRR
         h("div",null,
           h("div",{className:"bg-emerald-500/10 border border-emerald-500/30 rounded-t-lg px-3 py-2"},
             h("h3",{className:"text-sm font-bold text-emerald-600"},"Flip Analysis")),
           h("div",{className:"border border-t-0 border-slate-200 rounded-b-lg p-3 mb-3"},
-            lineItem("Purchase",inputs.purchase),
-            lineItem("+ Reno",inputs.reno),
+            lineItem("Purchase",calc.purchase),
+            lineItem("+ Reno",calc.reno),
             lineItem("+ Hold Cost",calc.holdCost),
             lineItem("+ Closing",calc.closing),
+            lineItem("+ Buyer Comm",calc.buyerComm),
             lineItem("+ Selling",calc.selling),
             h("hr",{className:"my-2 border-slate-200"}),
             lineItem("Profit",calc.flipProfit,true,calc.flipProfit>0?"text-emerald-600":"text-red-500"),
@@ -542,7 +583,6 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
             lineItem("CF/mo",calc.brrrrCF,false,calc.brrrrCF>0?"text-emerald-600":"text-red-500"),
           ),
         ),
-        // Column 3: Hold / Rental
         h("div",null,
           h("div",{className:"bg-blue-500/10 border border-blue-500/30 rounded-t-lg px-3 py-2"},
             h("h3",{className:"text-sm font-bold text-blue-600"},"Hold / Rental")),
@@ -561,7 +601,6 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
           ),
         ),
       ),
-      // Property data summary
       h("div",{className:"bg-slate-50 border-t border-slate-200 px-4 py-3"},
         h("div",{className:"text-[10px] uppercase text-slate-400 font-semibold mb-2"},"Property Data"),
         h("div",{className:"flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-500"},
