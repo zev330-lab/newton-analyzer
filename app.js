@@ -415,8 +415,7 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
   const rateRef = useRef(null);
   const downRef = useRef(null);
   const holdRef = useRef(null);
-  const buyCommRef = useRef(null);
-  const sellCommRef = useRef(null);
+  const commRef = useRef(null);
   const [btnText, setBtnText] = useState("Recalculate Analysis");
 
   const defaults = {
@@ -427,8 +426,7 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
     rate: MORTGAGE_RATE * 100,
     down: 25,
     hold: 6,
-    buyComm: 4,
-    sellComm: 5,
+    comm: 4,
   };
 
   const runCalc = (vals) => {
@@ -439,20 +437,19 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
     const rate = vals.rate / 100;
     const downPct = vals.down / 100;
     const holdMo = vals.hold;
-    const buyCommPct = vals.buyComm;
-    const sellCommPct = vals.sellComm;
+    const commPct = vals.comm / 100;
 
     const loan = purchase * (1 - downPct);
     const mp = monthlyPayment(loan, rate, 30);
+    const purchaseComm = purchase * commPct;
     const closing = purchase * 0.03;
-    const buyerComm = purchase * (buyCommPct / 100);
-    const selling = arv * (sellCommPct / 100);
+    const selling = arv * 0.05;
     const holdCost = purchase * (rate / 12) * holdMo;
-    const totalCost = purchase + reno + holdCost + closing + selling + buyerComm;
+    const totalCost = purchase + reno + holdCost + closing + purchaseComm + selling;
     const flipProfit = arv - totalCost;
     const flipROI = (purchase + reno) > 0 ? flipProfit / (purchase + reno) * 100 : 0;
 
-    const cashIn = purchase * downPct + closing + reno + buyerComm;
+    const cashIn = purchase * downPct + closing + reno + purchaseComm;
     const refiVal = arv * 0.75;
     const brrrrCashLeft = Math.max(0, cashIn - refiVal);
     const refiPmt = monthlyPayment(refiVal, rate, 30);
@@ -467,7 +464,7 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
     const grossYield = purchase > 0 ? annRent / purchase * 100 : 0;
     const capRate = purchase > 0 ? noi / purchase * 100 : 0;
 
-    return {purchase,reno,arv,rent,loan,mp,closing,selling,buyerComm,holdCost,totalCost,flipProfit,cashIn,flipROI,
+    return {purchase,reno,arv,rent,loan,mp,closing,selling,purchaseComm,holdCost,totalCost,flipProfit,cashIn,flipROI,
       refiVal,brrrrCashLeft,refiPmt,brrrrCF,
       annRent,annTax,annMaint,annVacancy,mortgageMo:mp,monthCF,noi,grossYield,capRate};
   };
@@ -476,7 +473,7 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
 
   const parseVal = (ref) => {
     const raw = ref.current ? ref.current.value : "0";
-    return parseFloat(raw.replace(/[$,%]/g, "").replace(/,/g, "")) || 0;
+    return parseFloat(raw.replace(/[^0-9.]/g, "")) || 0;
   };
 
   const handleRecalc = () => {
@@ -489,8 +486,7 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
       rate: parseVal(rateRef),
       down: parseVal(downRef),
       hold: parseVal(holdRef),
-      buyComm: parseVal(buyCommRef),
-      sellComm: parseVal(sellCommRef),
+      comm: parseVal(commRef),
     };
     const result = runCalc(vals);
     setCalc(result);
@@ -522,7 +518,7 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
     );
 
   return h("div",{className:"detail-modal",onClick:onClose},
-    h("div",{className:"bg-white rounded-2xl shadow-2xl max-w-5xl w-full mx-auto overflow-hidden slide-in",onClick:e=>e.stopPropagation()},
+    h("div",{className:"bg-white rounded-2xl shadow-2xl max-w-5xl w-full mx-auto overflow-hidden slide-in",key:p.id,onClick:e=>e.stopPropagation()},
       h("div",{className:"bg-navy-dark p-4 flex items-start justify-between"},
         h("div",{className:"flex-1"},
           h("h2",{className:"text-white text-lg font-bold"},p.addr),
@@ -552,8 +548,7 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
             inputRow("Rate",rateRef,defaults.rate.toFixed(1),"","%"),
             inputRow("Down Pmt",downRef,String(defaults.down),"","%"),
             inputRow("Hold",holdRef,String(defaults.hold),"","mo"),
-            inputRow("Buyer Comm",buyCommRef,String(defaults.buyComm),"","%"),
-            inputRow("Sell Comm",sellCommRef,String(defaults.sellComm),"","%"),
+            inputRow("Purch Comm",commRef,defaults.comm.toFixed(1),"","%"),
             h("button",{onClick:handleRecalc,
               className:"w-full mt-3 py-2.5 rounded-lg font-bold text-white text-sm transition-all "+
                 (btnText==="Updated \u2713"?"bg-emerald-500":"bg-gold hover:bg-gold-light")},
@@ -568,8 +563,8 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
             lineItem("+ Reno",calc.reno),
             lineItem("+ Hold Cost",calc.holdCost),
             lineItem("+ Closing",calc.closing),
-            lineItem("+ Buyer Comm",calc.buyerComm),
-            lineItem("+ Selling",calc.selling),
+            lineItem("+ Purch Comm",calc.purchaseComm),
+            lineItem("+ Selling (5%)",calc.selling),
             h("hr",{className:"my-2 border-slate-200"}),
             lineItem("Profit",calc.flipProfit,true,calc.flipProfit>0?"text-emerald-600":"text-red-500"),
             lineItem("ROI",calc.flipROI.toFixed(1)+"%",true,calc.flipROI>0?"text-emerald-600":"text-red-500"),
