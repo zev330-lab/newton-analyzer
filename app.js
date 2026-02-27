@@ -410,11 +410,13 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
   const p = prop;
   const [btnText, setBtnText] = useState("Recalculate Analysis");
   const parseNum = s => parseFloat(String(s).replace(/[^0-9.]/g, "")) || 0;
-  const fmtInit = n => Math.round(n).toLocaleString();
-  const [inputs, setInputs] = useState({
-    purchase: fmtInit(p.purchase), reno: fmtInit(p.reno),
-    arv: fmtInit(p.arv), rent: fmtInit(p.rent),
-    rate: (MORTGAGE_RATE * 100).toFixed(1), down: "25", hold: "6", comm: "4.0"
+  const [inputs, setInputs] = useState(function() {
+    var f = function(n) { return String(Math.round(n || 0)); };
+    return {
+      purchase: f(p.purchase), reno: f(p.reno),
+      arv: f(p.arv), rent: f(p.rent),
+      rate: (MORTGAGE_RATE * 100).toFixed(1), down: "25", hold: "6", comm: "4.0"
+    };
   });
 
 
