@@ -409,15 +409,8 @@ function PropertyTable({properties, page, setPage, sortKey, sortDir, onSort, onS
 function DetailModal({prop, onClose, starred, onToggleStar}) {
   const p = prop;
   const [btnText, setBtnText] = useState("Recalculate Analysis");
-  const parseNum = s => parseFloat(String(s).replace(/[^0-9.]/g, "")) || 0;
-  const [inputs, setInputs] = useState(function() {
-    var f = function(n) { return String(Math.round(n || 0)); };
-    return {
-      purchase: f(p.purchase), reno: f(p.reno),
-      arv: f(p.arv), rent: f(p.rent),
-      rate: (MORTGAGE_RATE * 100).toFixed(1), down: "25", hold: "6", comm: "4.0"
-    };
-  });
+  const _id = "di-" + p.id.replace(/\s/g,"") + "-";
+  const _rd = function(id) { var el = document.getElementById(id); return el ? parseFloat(String(el.value).replace(/[^0-9.]/g,"")) || 0 : 0; };
 
 
   const runCalc = (vals) => {
@@ -467,10 +460,10 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
   const handleRecalc = () => {
     setBtnText("Calculating...");
     setCalc(runCalc({
-      purchase: parseNum(inputs.purchase), reno: parseNum(inputs.reno),
-      arv: parseNum(inputs.arv), rent: parseNum(inputs.rent),
-      rate: parseNum(inputs.rate), down: parseNum(inputs.down),
-      hold: parseNum(inputs.hold), comm: parseNum(inputs.comm)
+      purchase: _rd(_id+"purchase"), reno: _rd(_id+"reno"),
+      arv: _rd(_id+"arv"), rent: _rd(_id+"rent"),
+      rate: _rd(_id+"rate"), down: _rd(_id+"down"),
+      hold: _rd(_id+"hold"), comm: _rd(_id+"comm")
     }));
     setTimeout(() => {
       setBtnText("Updated \u2713");
@@ -480,13 +473,15 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
 
   const isStarred = starred.has(p.id);
 
+  const _dv = {purchase:p.purchase,reno:p.reno,arv:p.arv,rent:p.rent,
+    rate:(MORTGAGE_RATE*100).toFixed(1),down:"25",hold:"6",comm:"4.0"};
   const inputRow = (label, field, prefix, suffix) =>
     h("div",{className:"flex items-center justify-between py-1.5 border-b border-slate-100"},
       h("span",{className:"text-xs text-slate-500"},label),
       h("div",{className:"flex items-center gap-1"},
         prefix && h("span",{className:"text-xs text-slate-400"},prefix),
-        h("input",{type:"text",inputMode:"decimal",value:inputs[field]||"",
-          onChange:e=>setInputs(prev=>({...prev,[field]:e.target.value})),
+        h("input",{type:"text",inputMode:"decimal",id:_id+field,
+          defaultValue:typeof _dv[field]==="number"?Math.round(_dv[field]).toLocaleString():_dv[field],
           className:"w-24 text-right text-sm font-medium border border-slate-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-gold"}),
         suffix && h("span",{className:"text-xs text-slate-400"},suffix),
       )
