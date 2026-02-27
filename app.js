@@ -442,16 +442,15 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
     const loan = purchase * (1 - downPct);
     const mp = monthlyPayment(loan, rate, 30);
     const purchaseComm = purchase * commPct;
-    const closing = purchase * 0.03;
     const selling = arv * 0.05;
     const holdCost = purchase * (rate / 12) * holdMo;
-    const totalCost = purchase + reno + holdCost + closing + purchaseComm + selling;
+    const totalCost = purchase + reno + holdCost + purchaseComm + selling;
     const flipProfit = arv - totalCost;
     const flipROI = (purchase + reno) > 0 ? flipProfit / (purchase + reno) * 100 : 0;
 
-    const cashIn = purchase * downPct + closing + reno + purchaseComm;
+    const cashIn = purchase * downPct + reno + purchaseComm;
     const refiVal = arv * 0.75;
-    const brrrrCashLeft = Math.max(0, cashIn - refiVal);
+    const brrrrCashLeft = cashIn - (refiVal - loan);
     const refiPmt = monthlyPayment(refiVal, rate, 30);
     const annTax = purchase * 0.0098;
     const annMaint = purchase * 0.01;
@@ -464,7 +463,7 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
     const grossYield = purchase > 0 ? annRent / purchase * 100 : 0;
     const capRate = purchase > 0 ? noi / purchase * 100 : 0;
 
-    return {purchase,reno,arv,rent,loan,mp,closing,selling,purchaseComm,holdCost,totalCost,flipProfit,cashIn,flipROI,
+    return {purchase,reno,arv,rent,loan,mp,selling,purchaseComm,holdCost,totalCost,flipProfit,cashIn,flipROI,
       refiVal,brrrrCashLeft,refiPmt,brrrrCF,
       annRent,annTax,annMaint,annVacancy,mortgageMo:mp,monthCF,noi,grossYield,capRate};
   };
@@ -562,7 +561,6 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
             lineItem("Purchase",calc.purchase),
             lineItem("+ Reno",calc.reno),
             lineItem("+ Hold Cost",calc.holdCost),
-            lineItem("+ Closing",calc.closing),
             lineItem("+ Purch Comm",calc.purchaseComm),
             lineItem("+ Selling (5%)",calc.selling),
             h("hr",{className:"my-2 border-slate-200"}),
