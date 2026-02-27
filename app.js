@@ -408,26 +408,15 @@ function PropertyTable({properties, page, setPage, sortKey, sortDir, onSort, onS
 // ── Property Detail Modal ──────────────────────────────────
 function DetailModal({prop, onClose, starred, onToggleStar}) {
   const p = prop;
-  const purchaseRef = useRef(null);
-  const renoRef = useRef(null);
-  const arvRef = useRef(null);
-  const rentRef = useRef(null);
-  const rateRef = useRef(null);
-  const downRef = useRef(null);
-  const holdRef = useRef(null);
-  const commRef = useRef(null);
   const [btnText, setBtnText] = useState("Recalculate Analysis");
+  const parseNum = s => parseFloat(String(s).replace(/[^0-9.]/g, "")) || 0;
+  const fmtInit = n => Math.round(n).toLocaleString();
+  const [inputs, setInputs] = useState({
+    purchase: fmtInit(p.purchase), reno: fmtInit(p.reno),
+    arv: fmtInit(p.arv), rent: fmtInit(p.rent),
+    rate: (MORTGAGE_RATE * 100).toFixed(1), down: "25", hold: "6", comm: "4.0"
+  });
 
-  const defaults = {
-    purchase: p.purchase,
-    reno: p.reno,
-    arv: p.arv,
-    rent: p.rent,
-    rate: MORTGAGE_RATE * 100,
-    down: 25,
-    hold: 6,
-    comm: 4,
-  };
 
   const runCalc = (vals) => {
     const purchase = vals.purchase;
@@ -468,27 +457,19 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
       annRent,annTax,annMaint,annVacancy,mortgageMo:mp,monthCF,noi,grossYield,capRate};
   };
 
-  const [calc, setCalc] = useState(() => runCalc(defaults));
-
-  const parseVal = (ref) => {
-    const raw = ref.current ? ref.current.value : "0";
-    return parseFloat(raw.replace(/[^0-9.]/g, "")) || 0;
-  };
+  const [calc, setCalc] = useState(() => runCalc({
+    purchase: p.purchase, reno: p.reno, arv: p.arv, rent: p.rent,
+    rate: MORTGAGE_RATE * 100, down: 25, hold: 6, comm: 4
+  }));
 
   const handleRecalc = () => {
     setBtnText("Calculating...");
-    const vals = {
-      purchase: parseVal(purchaseRef),
-      reno: parseVal(renoRef),
-      arv: parseVal(arvRef),
-      rent: parseVal(rentRef),
-      rate: parseVal(rateRef),
-      down: parseVal(downRef),
-      hold: parseVal(holdRef),
-      comm: parseVal(commRef),
-    };
-    const result = runCalc(vals);
-    setCalc(result);
+    setCalc(runCalc({
+      purchase: parseNum(inputs.purchase), reno: parseNum(inputs.reno),
+      arv: parseNum(inputs.arv), rent: parseNum(inputs.rent),
+      rate: parseNum(inputs.rate), down: parseNum(inputs.down),
+      hold: parseNum(inputs.hold), comm: parseNum(inputs.comm)
+    }));
     setTimeout(() => {
       setBtnText("Updated \u2713");
       setTimeout(() => setBtnText("Recalculate Analysis"), 1500);
@@ -496,18 +477,19 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
   };
 
   const isStarred = starred.has(p.id);
-  const fmtDef = (n) => Math.round(n).toLocaleString();
 
-  const inputRow = (label, ref, defaultVal, prefix, suffix) =>
+  const inputRow = (label, field, prefix, suffix) =>
     h("div",{className:"flex items-center justify-between py-1.5 border-b border-slate-100"},
       h("span",{className:"text-xs text-slate-500"},label),
       h("div",{className:"flex items-center gap-1"},
         prefix && h("span",{className:"text-xs text-slate-400"},prefix),
-        h("input",{type:"text",inputMode:"decimal",defaultValue:defaultVal,ref:ref,
+        h("input",{type:"text",inputMode:"decimal",value:inputs[field]||"",
+          onChange:e=>setInputs(prev=>({...prev,[field]:e.target.value})),
           className:"w-24 text-right text-sm font-medium border border-slate-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-gold"}),
         suffix && h("span",{className:"text-xs text-slate-400"},suffix),
       )
     );
+
 
   const lineItem = (label, val, bold, color) =>
     h("div",{className:"flex items-center justify-between py-1 "+(bold?"font-bold":"")},
@@ -540,14 +522,14 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
           h("div",{className:"bg-gold/10 border border-gold/30 rounded-t-lg px-3 py-2"},
             h("h3",{className:"text-sm font-bold text-gold"},"Adjustable Inputs")),
           h("div",{className:"border border-t-0 border-slate-200 rounded-b-lg p-3 mb-4"},
-            inputRow("Purchase",purchaseRef,fmtDef(defaults.purchase),"$"),
-            inputRow("Reno Budget",renoRef,fmtDef(defaults.reno),"$"),
-            inputRow("ARV",arvRef,fmtDef(defaults.arv),"$"),
-            inputRow("Rent/mo",rentRef,fmtDef(defaults.rent),"$"),
-            inputRow("Rate",rateRef,defaults.rate.toFixed(1),"","%"),
-            inputRow("Down Pmt",downRef,String(defaults.down),"","%"),
-            inputRow("Hold",holdRef,String(defaults.hold),"","mo"),
-            inputRow("Purch Comm",commRef,defaults.comm.toFixed(1),"","%"),
+            inputRow("Purchase","purchase","$"),
+            inputRow("Reno Budget","reno","$"),
+            inputRow("ARV","arv","$"),
+            inputRow("Rent/mo","rent","$"),
+            inputRow("Rate","rate","","%"),
+            inputRow("Down Pmt","down","","%"),
+            inputRow("Hold","hold","","mo"),
+            inputRow("Purchase Comm","comm","","%"),
             h("button",{onClick:handleRecalc,
               className:"w-full mt-3 py-2.5 rounded-lg font-bold text-white text-sm transition-all "+
                 (btnText==="Updated \u2713"?"bg-emerald-500":"bg-gold hover:bg-gold-light")},
