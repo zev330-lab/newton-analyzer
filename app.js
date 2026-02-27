@@ -482,11 +482,18 @@ function DetailModal({prop, onClose, starred, onToggleStar}) {
         prefix && h("span",{className:"text-xs text-slate-400"},prefix),
         h("input",{type:"text",inputMode:"decimal",id:_id+field,
           defaultValue:typeof _dv[field]==="number"?Math.round(_dv[field]).toLocaleString():_dv[field],
+          style:{color:"#111"},
           className:"w-24 text-right text-sm font-medium border border-slate-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-gold"}),
         suffix && h("span",{className:"text-xs text-slate-400"},suffix),
       )
     );
 
+  useEffect(function() {
+    ["purchase","reno","arv","rent","rate","down","hold","comm"].forEach(function(f) {
+      var el = document.getElementById(_id + f);
+      if (el && _dv[f] != null) el.value = typeof _dv[f] === "number" ? Math.round(_dv[f]).toLocaleString() : String(_dv[f]);
+    });
+  }, []);
 
   const lineItem = (label, val, bold, color) =>
     h("div",{className:"flex items-center justify-between py-1 "+(bold?"font-bold":"")},
